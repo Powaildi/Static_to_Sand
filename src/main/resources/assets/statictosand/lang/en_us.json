@@ -1,0 +1,13 @@
+{
+  "itemGroup.statictosand": "Example Mod Tab",
+  "block.statictosand.example_block": "Example Block",
+  "item.statictosand.example_item": "Example Item",
+
+  "statictosand.configuration.title": "Static_to_Sand Configs",
+  "statictosand.configuration.section.statictosand.common.toml": "Static_to_Sand Configs",
+  "statictosand.configuration.section.statictosand.common.toml.title": "Static_to_Sand Configs",
+  "statictosand.configuration.items": "Item List",
+  "statictosand.configuration.logDirtBlock": "Log Dirt Block",
+  "statictosand.configuration.magicNumberIntroduction": "Magic Number Text",
+  "statictosand.configuration.magicNumber": "Magic Number"
+}

@@ -1,0 +1,14 @@
+{
+  "itemGroup.statictosand": "示例模组标签",
+  "item.statictosand.static_to_sand": "静态转沙",
+  "block.statictosand.example_block": "示例方块",
+  "item.statictosand.example_item": "示例物品",
+
+  "statictosand.configuration.title": "Static_to_Sand 配置",
+  "statictosand.configuration.section.statictosand.common.toml": "Static_to_Sand 配置",
+  "statictosand.configuration.section.statictosand.common.toml.title": "Static_to_Sand 配置",
+  "statictosand.configuration.items": "物品列表",
+  "statictosand.configuration.logDirtBlock": "记录泥土方块",
+  "statictosand.configuration.magicNumberIntroduction": "魔法数字文本",
+  "statictosand.configuration.magicNumber": "魔法数字"
+}

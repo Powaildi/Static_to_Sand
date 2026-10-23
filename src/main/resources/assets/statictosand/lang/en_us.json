@@ -1,5 +1,6 @@
 {
   "itemGroup.statictosand": "Example Mod Tab",
+  "item.statictosand.static_to_sand": "Static to Sand",
   "block.statictosand.example_block": "Example Block",
   "item.statictosand.example_item": "Example Item",
 

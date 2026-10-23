@@ -1,25 +1,21 @@
+Static to Sand
+==============
 
-Installation information
-=======
+This NeoForge 1.21.1 mod adds a `Static to Sand` item. Right-click a block
+with the item to select its connected cluster (up to 1024 blocks). The cluster
+is moved one block per server tick: first away from the selection center, then
+back toward it. Sneak-right-clicking starts directly with the centering phase.
 
-This template repository can be directly cloned to get you started with a new
-mod. Simply create a new repository cloned from this one, by following the
-instructions provided by [GitHub](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template).
+The item is available in the mod's creative tab and has the ID
+`statictosand:static_to_sand`.
 
-Once you have your clone, simply open the repository in the IDE of your choice. The usual recommendation for an IDE is either IntelliJ IDEA or Eclipse.
+Building
+--------
 
-If at any point you are missing libraries in your IDE, or you've run into problems you can
-run `gradlew --refresh-dependencies` to refresh the local cache. `gradlew clean` to reset everything 
-{this does not affect your code} and then start the process again.
+Run `gradlew.bat build` on Windows.
 
-Mapping Names:
-============
-By default, the MDK is configured to use the official mapping names from Mojang for methods and fields 
-in the Minecraft codebase. These names are covered by a specific license. All modders should be aware of this
-license. For the latest license text, refer to the mapping file itself, or the reference copy here:
-https://github.com/NeoForged/NeoForm/blob/main/Mojang.md
+Mapping names
+-------------
 
-Additional Resources: 
-==========
-Community Documentation: https://docs.neoforged.net/  
-NeoForged Discord: https://discord.neoforged.net/
+The project uses the official Minecraft 1.21.1 mappings through NeoForge
+ModDevGradle.

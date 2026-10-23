@@ -5,6 +5,30 @@ plugins {
     id 'idea'
 }
 
+// ---------------------------------------------------------------------------
+// NeoForged Maven mirror.
+// maven.neoforged.net is regularly unreachable from mainland China (the build
+// fails with "Connection reset" while fetching neoform-runtime). NeoForged
+// publishes an official CDN mirror of the very same repository, so every
+// repository pointing at the official host is redirected to it below.
+// Remove this block if you can reach maven.neoforged.net directly.
+// ---------------------------------------------------------------------------
+def neoforgedHost = 'maven.neoforged.net'
+def mirrorHost = 'neoforged.forgecdn.net'
+
+// Catch the repositories the ModDev plugin registers itself (such as the ones
+// used by :neoFormRuntimeTool and net.neoforged:minecraft-dependencies) and
+// move them to the mirror, keeping the repository path
+// (/releases, /mojang-meta, ...) intact.
+repositories.all { repo ->
+    if (repo instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository) {
+        def url = repo.url.toString()
+        if (url.contains(neoforgedHost)) {
+            repo.url = url.replace(neoforgedHost, mirrorHost)
+        }
+    }
+}
+
 tasks.named('wrapper', Wrapper).configure {
     // Define wrapper values here so as to not have to always do so when updating gradlew.properties.
     // Switching this to Wrapper.DistributionType.ALL will download the full gradle sources that comes with

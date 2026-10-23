@@ -50,6 +50,22 @@ sourceSets.main.resources {
     exclude("src/generated/**/.cache") // datagen cache files
 }
 
+// ---------------------------------------------------------------------------
+// VS Code workaround for ModDevGradle's generated launch.json.
+//
+// ModDevGradle points fml.modFolders at bin/main (the Eclipse layout). When the
+// VS Code Gradle Build Server is enabled, the Java tooling compiles into
+// build/classes/java/main and build/resources/main instead, leaving bin/main
+// stale. .vscode/settings.json disables that build server so VS Code uses the
+// Eclipse-style layout again. This task can also refresh bin/main manually.
+//
+// Upstream issue: https://github.com/neoforged/ModDevGradle/issues/339
+// ---------------------------------------------------------------------------
+tasks.register('syncVsCodeOutput', Sync) {
+    from sourceSets.main.output
+    into layout.projectDirectory.dir('bin/main')
+}
+
 repositories {
     // Add here additional repositories if required by some of the dependencies below.
 }

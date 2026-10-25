@@ -15,7 +15,9 @@ public class Config {
     public static final ModConfigSpec.ConfigValue<List<? extends String>> APPROXIMATE_MATCHING_TAGS = BUILDER
             .comment("Block tags used by StaticToSandEvent approximate matching")
             .defineList("approximateMatchingTags",
-                    List.of("minecraft:dirt", "statictosand:approximate_stone"),
+                    List.of("minecraft:dirt", "statictosand:approximate_stone",
+                            "minecraft:terracotta"),
+                    () -> "",
                     value -> value instanceof String);
 
     public static final ModConfigSpec.EnumValue<GravityBlockMode> GRAVITY_BLOCK_MODE = BUILDER

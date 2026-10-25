@@ -21,8 +21,9 @@ block tags instead of requiring the exact same block.
 Events can also set `protectBlockEntities` to preserve block entity data while
 selected blocks move; it defaults to `false`. An event triggered at an air block
 is canceled immediately.
-The `approximateMatchingTags` configuration defaults to `minecraft:dirt` and
-`statictosand:approximate_stone`. The latter includes stone, andesite, granite,
+The `approximateMatchingTags` configuration defaults to `minecraft:dirt`,
+`statictosand:approximate_stone`, and `minecraft:terracotta` (which includes
+plain and colored terracotta). The latter includes stone, andesite, granite,
 diorite, deepslate, tuff, dripstone, vanilla ores, and optional `c:ores` and
 `forge:ores` tags for ores added by other mods.
 While holding `static_to_sand`, Shift+left-click toggles approximate matching

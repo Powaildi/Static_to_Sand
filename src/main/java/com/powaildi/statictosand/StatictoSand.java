@@ -28,9 +28,7 @@ public class StatictoSand {
         // Register the Deferred Register to the mod event bus so items get registered
         ITEMS.register(modEventBus);
 
-        // This class has no @SubscribeEvent methods, so it must not be registered on the game
-        // event bus: NeoForge's event bus throws if a listener object has no subscribed methods.
-        // Only the task object below listens to game events.
+        // Register the task listener for both item interactions and StaticToSandEvent.
         NeoForge.EVENT_BUS.register(new StaticToSandTask());
 
         // Add the item to the tools and utilities creative tab

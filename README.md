@@ -2,7 +2,9 @@ Static to Sand
 ==============
 
 This NeoForge 1.21.1 mod adds a `Static to Sand` item. Right-click a block
-with the item to select its connected cluster (up to 1024 blocks). The cluster
+with the item to select its connected cluster (up to 1024 blocks by default).
+The item limit is configurable with `staticToSandMaxBlocks`. Other callers can
+post a `StaticToSandEvent` with their own connected-block limit. The cluster
 is moved one block per server tick away from the selection center. A normal
 right-click task ends when Phase 1 can no longer move. Sneak-right-clicking
 uses the player's position as the center and starts a new task directly in
@@ -10,6 +12,8 @@ Phase 2; when a phase-one task is already running, only the newly selected
 blocks are flagged for Phase 2.
 
 Horizontal movement uses the four cardinal directions and Chebyshev distance.
+The `StaticToSandEvent` is posted on `NeoForge.EVENT_BUS` and accepts the server
+level, trigger position, player, and maximum connected-block count.
 After the configured number of horizontal moves, an entry enters the waiting
 zone. The default `horizontalMoveLimit` is 32 and can be changed in
 `run/config/statictosand-common.toml`.

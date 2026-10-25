@@ -6,6 +6,10 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
+    public static final ModConfigSpec.IntValue STATIC_TO_SAND_MAX_BLOCKS = BUILDER
+            .comment("Maximum number of connected blocks selected by the static_to_sand item")
+            .defineInRange("staticToSandMaxBlocks", 1024, 1, Integer.MAX_VALUE);
+
     public static final ModConfigSpec.IntValue HORIZONTAL_MOVE_LIMIT = BUILDER
             .comment("Number of horizontal moves before an entry is put into the waiting zone")
             .defineInRange("horizontalMoveLimit", 32, 1, Integer.MAX_VALUE);

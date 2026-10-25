@@ -22,6 +22,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -32,7 +33,6 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
  */
 @SuppressWarnings("null")
 final class StaticToSandTask {
-    private static final int MAX_BLOCKS = 1024;
     /** Only notify clients; no neighbour updates, scheduled ticks or drops. */
     private static final int SET_BLOCK_FLAGS = 2;
 
@@ -84,6 +84,13 @@ final class StaticToSandTask {
             return;
         }
 
+        NeoForge.EVENT_BUS.post(new StaticToSandEvent(
+                level, event.getPos(), event.getEntity(), Config.STATIC_TO_SAND_MAX_BLOCKS.getAsInt()));
+    }
+
+    @SubscribeEvent
+    public void onStaticToSand(StaticToSandEvent event) {
+        ServerLevel level = event.getLevel();
         BlockState clickedState = level.getBlockState(event.getPos());
         if (clickedState.isAir()) {
             return;
@@ -91,12 +98,12 @@ final class StaticToSandTask {
 
         Block block = clickedState.getBlock();
         ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(block);
-        List<BlockPos> selected = selectBlocks(level, event.getPos(), block);
+        List<BlockPos> selected = selectBlocks(level, event.getPos(), block, event.getMaxConnectedBlocks());
         if (selected.isEmpty()) {
             return;
         }
 
-        Player player = event.getEntity();
+        Player player = event.getPlayer();
         boolean shift = player.isShiftKeyDown();
         Center center = shift
                 ? new Center(player.getBlockX(), player.getBlockZ())
@@ -153,7 +160,8 @@ final class StaticToSandTask {
         advancePhaseOrFinish();
     }
 
-    private List<BlockPos> selectBlocks(ServerLevel level, BlockPos start, Block block) {
+    private List<BlockPos> selectBlocks(
+            ServerLevel level, BlockPos start, Block block, int maxConnectedBlocks) {
         ArrayDeque<BlockPos> queue = new ArrayDeque<>();
         Set<BlockPos> visited = new HashSet<>();
         List<BlockPos> selected = new ArrayList<>();
@@ -161,7 +169,7 @@ final class StaticToSandTask {
         queue.add(start);
         visited.add(start);
 
-        while (!queue.isEmpty() && selected.size() < MAX_BLOCKS) {
+        while (!queue.isEmpty() && selected.size() < maxConnectedBlocks) {
             BlockPos pos = queue.removeFirst();
             if (level.getBlockState(pos).getBlock() != block) {
                 continue;
@@ -170,7 +178,7 @@ final class StaticToSandTask {
             selected.add(pos);
 
             for (BlockPos direction : BFS_DIRECTIONS) {
-                if (selected.size() >= MAX_BLOCKS) {
+                if (selected.size() >= maxConnectedBlocks) {
                     break;
                 }
                 BlockPos neighbor = pos.offset(direction);

@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 import net.neoforged.bus.api.Event;
+import net.neoforged.bus.api.ICancellableEvent;
 
 /**
  * Requests that the connected block cluster at {@link #getPos()} be moved.
@@ -12,12 +13,13 @@ import net.neoforged.bus.api.Event;
  * requiring the static_to_sand item interaction. The selection limit belongs
  * to the event so different callers can use different limits.</p>
  */
-public final class StaticToSandEvent extends Event {
+public final class StaticToSandEvent extends Event implements ICancellableEvent {
     private final ServerLevel level;
     private final BlockPos pos;
     private final Player player;
     private final int maxConnectedBlocks;
     private final boolean approximateMatching;
+    private final boolean protectBlockEntities;
 
     public StaticToSandEvent(ServerLevel level, BlockPos pos, Player player, int maxConnectedBlocks) {
         this(level, pos, player, maxConnectedBlocks, false);
@@ -26,6 +28,12 @@ public final class StaticToSandEvent extends Event {
     public StaticToSandEvent(
             ServerLevel level, BlockPos pos, Player player, int maxConnectedBlocks,
             boolean approximateMatching) {
+        this(level, pos, player, maxConnectedBlocks, approximateMatching, false);
+    }
+
+    public StaticToSandEvent(
+            ServerLevel level, BlockPos pos, Player player, int maxConnectedBlocks,
+            boolean approximateMatching, boolean protectBlockEntities) {
         if (maxConnectedBlocks < 1) {
             throw new IllegalArgumentException("maxConnectedBlocks must be at least 1");
         }
@@ -34,6 +42,7 @@ public final class StaticToSandEvent extends Event {
         this.player = player;
         this.maxConnectedBlocks = maxConnectedBlocks;
         this.approximateMatching = approximateMatching;
+        this.protectBlockEntities = protectBlockEntities;
     }
 
     public StaticToSandEvent(ServerLevel level, BlockPos pos, int maxConnectedBlocks) {
@@ -42,7 +51,13 @@ public final class StaticToSandEvent extends Event {
 
     public StaticToSandEvent(
             ServerLevel level, BlockPos pos, int maxConnectedBlocks, boolean approximateMatching) {
-        this(level, pos, null, maxConnectedBlocks, approximateMatching);
+        this(level, pos, null, maxConnectedBlocks, approximateMatching, false);
+    }
+
+    public StaticToSandEvent(
+            ServerLevel level, BlockPos pos, int maxConnectedBlocks,
+            boolean approximateMatching, boolean protectBlockEntities) {
+        this(level, pos, null, maxConnectedBlocks, approximateMatching, protectBlockEntities);
     }
 
     public ServerLevel getLevel() {
@@ -63,5 +78,9 @@ public final class StaticToSandEvent extends Event {
 
     public boolean isApproximateMatching() {
         return approximateMatching;
+    }
+
+    public boolean isProtectBlockEntities() {
+        return protectBlockEntities;
     }
 }

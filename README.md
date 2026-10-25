@@ -18,6 +18,9 @@ The `StaticToSandEvent` is posted on `NeoForge.EVENT_BUS` and accepts the server
 level, trigger position, player, and maximum connected-block count. Its
 approximate-matching overload can select connected blocks sharing configured
 block tags instead of requiring the exact same block.
+Events can also set `protectBlockEntities` to preserve block entity data while
+selected blocks move; it defaults to `false`. An event triggered at an air block
+is canceled immediately.
 The `approximateMatchingTags` configuration defaults to `minecraft:dirt` and
 `statictosand:approximate_stone`. The latter includes stone, andesite, granite,
 diorite, deepslate, tuff, dripstone, vanilla ores, and optional `c:ores` and

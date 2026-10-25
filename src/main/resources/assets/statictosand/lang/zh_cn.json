@@ -1,11 +1,20 @@
 {
   "item.statictosand.static_to_sand": "化地为砂",
 
-  "statictosand.configuration.title": "Static_to_Sand 配置",
-  "statictosand.configuration.section.statictosand.common.toml": "Static_to_Sand 配置",
-  "statictosand.configuration.section.statictosand.common.toml.title": "Static_to_Sand 配置",
-  "statictosand.configuration.items": "物品列表",
-  "statictosand.configuration.logDirtBlock": "记录泥土方块",
-  "statictosand.configuration.magicNumberIntroduction": "魔法数字文本",
-  "statictosand.configuration.magicNumber": "魔法数字"
+  "statictosand.configuration.title": "化地为砂配置",
+  "statictosand.configuration.section.statictosand.common.toml": "化地为砂配置",
+  "statictosand.configuration.section.statictosand.common.toml.title": "化地为砂配置",
+  "statictosand.configuration.staticToSandMaxBlocks": "化地为砂物品最大连锁方块数",
+  "statictosand.configuration.approximateMatchingTags": "模糊匹配标签",
+  "statictosand.configuration.gravityBlockMode": "重力方块逻辑接管模式",
+  "statictosand.configuration.gravityBlockMaxBlocks": "重力方块单次连锁数量",
+  "statictosand.configuration.horizontalMoveLimit": "水平移动上限",
+  "statictosand.configuration.isolationMoveLimit": "孤立方块移动上限",
+  "statictosand.configuration.activeBlockLimit": "总活动方块上限",
+  "statictosand.configuration.waitingBlockLimit": "总等待方块上限",
+  "statictosand.configuration.fluidsAreAir": "将流体视为空气",
+  "statictosand.configuration.replaceFallingBlockWithFluid": "下落方块返还流体源",
+  "statictosand.message.approximate_matching": "模糊匹配: ",
+  "statictosand.message.selection_limit": "选择方块数: ",
+  "statictosand.message.task_finished": "移动了%1$s个方块，经历了%2$s tick"
 }

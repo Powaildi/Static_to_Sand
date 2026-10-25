@@ -4,8 +4,17 @@
   "statictosand.configuration.title": "Static_to_Sand Configs",
   "statictosand.configuration.section.statictosand.common.toml": "Static_to_Sand Configs",
   "statictosand.configuration.section.statictosand.common.toml.title": "Static_to_Sand Configs",
-  "statictosand.configuration.items": "Item List",
-  "statictosand.configuration.logDirtBlock": "Log Dirt Block",
-  "statictosand.configuration.magicNumberIntroduction": "Magic Number Text",
-  "statictosand.configuration.magicNumber": "Magic Number"
+  "statictosand.configuration.staticToSandMaxBlocks": "Maximum Connected Blocks",
+  "statictosand.configuration.approximateMatchingTags": "Approximate Matching Tags",
+  "statictosand.configuration.gravityBlockMode": "Gravity Block Mode",
+  "statictosand.configuration.gravityBlockMaxBlocks": "Gravity Block Maximum Blocks",
+  "statictosand.configuration.horizontalMoveLimit": "Horizontal Move Limit",
+  "statictosand.configuration.isolationMoveLimit": "Isolation Move Limit",
+  "statictosand.configuration.activeBlockLimit": "Active Block Limit",
+  "statictosand.configuration.waitingBlockLimit": "Waiting Block Limit",
+  "statictosand.configuration.fluidsAreAir": "Treat Fluids as Air",
+  "statictosand.configuration.replaceFallingBlockWithFluid": "Replace Falling Blocks with Fluid",
+  "statictosand.message.approximate_matching": "Approximate matching: ",
+  "statictosand.message.selection_limit": "Block selection limit: ",
+  "statictosand.message.task_finished": "Moved %1$s blocks in %2$s ticks"
 }

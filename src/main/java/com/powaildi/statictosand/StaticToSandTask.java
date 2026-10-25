@@ -109,7 +109,7 @@ public final class StaticToSandTask {
         PlayerSettings settings = settings(player);
         settings.approximateMatching = !settings.approximateMatching;
         player.displayClientMessage(
-                Component.literal("模糊匹配: ")
+                Component.translatable("statictosand.message.approximate_matching")
                         .append(Component.literal(Boolean.toString(settings.approximateMatching))
                                 .withStyle(settings.approximateMatching
                                         ? ChatFormatting.GREEN : ChatFormatting.RED)),
@@ -129,7 +129,7 @@ public final class StaticToSandTask {
                 ? Math.min(maximum, doubled(current))
                 : Math.max(1, (current + 1) / 2);
         player.displayClientMessage(
-                Component.literal("选择方块数: ")
+                Component.translatable("statictosand.message.selection_limit")
                         .append(Component.literal(Integer.toString(settings.maxConnectedBlocks))
                                 .withStyle(ChatFormatting.AQUA)),
                 true);
@@ -312,7 +312,6 @@ public final class StaticToSandTask {
             active.clear();
         }
         appendUnique(active, additions);
-        enforceQueueLimits(new ArrayList<>(), new HashSet<>());
     }
 
     private static List<TagKey<Block>> approximateMatchingTags(BlockState triggerState) {
@@ -523,6 +522,10 @@ public final class StaticToSandTask {
     }
 
     private void enforceQueueLimits(List<Entry> pendingActive, Set<Entry> pendingSet) {
+        appendUnique(active, pendingActive);
+        active.removeIf(entry -> entry.zone != Zone.ACTIVE);
+        waiting.removeIf(entry -> entry.zone != Zone.WAITING);
+
         while (active.size() > Config.ACTIVE_BLOCK_LIMIT.getAsInt()) {
             Entry oldest = active.remove(0);
             if (oldest.zone == Zone.ACTIVE) {
@@ -538,9 +541,8 @@ public final class StaticToSandTask {
             }
         }
 
+        // Activations caused by waiting-zone eviction take effect next tick.
         appendUnique(active, pendingActive);
-        pendingActive.clear();
-        pendingSet.clear();
     }
 
     private void removeEntry(Entry entry, List<Entry> pendingActive, Set<Entry> pendingSet) {
@@ -604,9 +606,9 @@ public final class StaticToSandTask {
     }
 
     private void finishTask() {
-        String message = "移动了" + totalBlocks + "个方块，经历了" + tickCount + " tick";
         if (!participants.isEmpty()) {
-            participants.forEach(player -> player.sendSystemMessage(Component.literal(message)));
+            participants.forEach(player -> player.sendSystemMessage(
+                    Component.translatable("statictosand.message.task_finished", totalBlocks, tickCount)));
         }
         resetTaskState();
     }

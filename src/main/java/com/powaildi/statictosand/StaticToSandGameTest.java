@@ -21,10 +21,7 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 @PrefixGameTestTemplate(false)
 public final class StaticToSandGameTest {
     @GameTest(template = "empty", timeoutTicks = 40)
-    public static void runsFullPhaseCycle(GameTestHelper helper) {
-        // A two-block corridor with closed ends and closed sides. The single
-        // selected block can only move away once, then has to return to the
-        // selection center after the phase switch.
+    public static void isolatedPhaseOneBlockWaits(GameTestHelper helper) {
         for (int x = 4; x <= 6; x++) {
             for (int z = 4; z <= 6; z++) {
                 helper.setBlock(x, 0, z, Blocks.STONE);
@@ -46,27 +43,18 @@ public final class StaticToSandGameTest {
         NeoForge.EVENT_BUS.post(
                 new PlayerInteractEvent.RightClickBlock(player, InteractionHand.MAIN_HAND, absPos, hit));
 
-        boolean[] movedAway = {false};
-        int[] centerTicks = {0};
         helper.succeedWhen(() -> {
-            boolean atAway = helper.getBlockState(new BlockPos(6, 1, 5)).is(Blocks.DIAMOND_BLOCK);
             boolean atCenter = helper.getBlockState(new BlockPos(5, 1, 5)).is(Blocks.DIAMOND_BLOCK);
-
-            if (atAway) {
-                movedAway[0] = true;
-            }
-            if (movedAway[0]) {
-                centerTicks[0] = atCenter && !atAway ? centerTicks[0] + 1 : 0;
-            }
-            if (movedAway[0] && centerTicks[0] >= 2) {
+            boolean atAway = helper.getBlockState(new BlockPos(6, 1, 5)).is(Blocks.DIAMOND_BLOCK);
+            if (atCenter && !atAway) {
                 return;
             }
-            throw new GameTestAssertException("block has not completed the phase cycle");
+            throw new GameTestAssertException("isolated phase-one block did not wait");
         });
     }
 
     @GameTest(template = "empty", timeoutTicks = 20)
-    public static void shiftClickUsesPlayerCenterAndPhaseTwo(GameTestHelper helper) {
+    public static void isolatedPhaseTwoBlockReachesCenter(GameTestHelper helper) {
         for (int x = 4; x <= 6; x++) {
             for (int z = 4; z <= 6; z++) {
                 helper.setBlock(x, 0, z, Blocks.STONE);
@@ -87,12 +75,12 @@ public final class StaticToSandGameTest {
         int[] centerTicks = {0};
         helper.succeedWhen(() -> {
             boolean atCenter = helper.getBlockState(new BlockPos(5, 1, 5)).is(Blocks.DIAMOND_BLOCK);
-            boolean awayEmpty = helper.getBlockState(new BlockPos(6, 1, 5)).isAir();
-            centerTicks[0] = atCenter && awayEmpty ? centerTicks[0] + 1 : 0;
+            boolean startEmpty = helper.getBlockState(new BlockPos(6, 1, 5)).isAir();
+            centerTicks[0] = atCenter && startEmpty ? centerTicks[0] + 1 : 0;
             if (centerTicks[0] >= 2) {
                 return;
             }
-            throw new GameTestAssertException("shift-clicked block has not reached the player center");
+            throw new GameTestAssertException("isolated phase-two block did not reach center");
         });
     }
 }

@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -27,25 +28,20 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 /**
  * Moves a connected cluster of blocks one block per tick. Phase one pushes the
- * cluster away from its center, phase two pulls it back.
+ * cluster away from its center; shift-click starts phase two toward the player.
  */
 @SuppressWarnings("null")
 final class StaticToSandTask {
     private static final int MAX_BLOCKS = 1024;
-    private static final int HORIZONTAL_MOVE_THRESHOLD = 4;
     /** Only notify clients; no neighbour updates, scheduled ticks or drops. */
     private static final int SET_BLOCK_FLAGS = 2;
 
-    /** Clockwise ring order starting at +X: +X, +X+Z, +Z, ... +X-Z. */
+    /** Cardinal horizontal directions starting at +X: +X, +Z, -X, -Z. */
     private static final BlockPos[] HORIZONTAL_DIRECTIONS = {
             new BlockPos(1, 0, 0),
-            new BlockPos(1, 0, 1),
             new BlockPos(0, 0, 1),
-            new BlockPos(-1, 0, 1),
             new BlockPos(-1, 0, 0),
-            new BlockPos(-1, 0, -1),
-            new BlockPos(0, 0, -1),
-            new BlockPos(1, 0, -1)
+            new BlockPos(0, 0, -1)
     };
     private static final BlockPos[] BFS_DIRECTIONS = {
             new BlockPos(0, 1, 0),
@@ -55,23 +51,20 @@ final class StaticToSandTask {
             new BlockPos(0, 0, -1),
             new BlockPos(0, -1, 0)
     };
-    private static final BlockPos[] PULL_BACK_OFFSETS = {
-            new BlockPos(1, 0, 0),
-            new BlockPos(0, 0, 1),
+    /** Horizontal neighbors plus the block directly above the trigger position. */
+    private static final BlockPos[] ACTIVATION_OFFSETS = {
+            new BlockPos(-1, 0, -1),
             new BlockPos(-1, 0, 0),
+            new BlockPos(-1, 0, 1),
             new BlockPos(0, 0, -1),
+            new BlockPos(0, 0, 1),
+            new BlockPos(1, 0, -1),
+            new BlockPos(1, 0, 0),
+            new BlockPos(1, 0, 1),
             new BlockPos(0, 1, 0)
     };
-
-    private static final int PHASE_1_NEIGHBOR_WEIGHT = 12;
-    private static final int PHASE_1_DISTANCE_WEIGHT = 1;
-    private static final int PHASE_1_CENTROID_WEIGHT = 2;
-    private static final int PHASE_1_ISOLATION_PENALTY = 8;
-
     private static final int PHASE_2_NEIGHBOR_WEIGHT = 12;
     private static final int PHASE_2_DISTANCE_WEIGHT = 2;
-    private static final int PHASE_2_CENTROID_WEIGHT = 0;
-    private static final int PHASE_2_ISOLATION_PENALTY = 8;
 
     private final List<Entry> active = new ArrayList<>();
     private final List<Entry> waiting = new ArrayList<>();
@@ -82,11 +75,6 @@ final class StaticToSandTask {
     private int phase = 1;
     private long tickCount;
     private int totalBlocks;
-
-    private int centroidX;
-    private int centroidZ;
-    private boolean centroidValid;
-    private boolean centroidDirty;
 
     @SubscribeEvent
     public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
@@ -129,8 +117,6 @@ final class StaticToSandTask {
             running = true;
             phase = shift ? 2 : 1;
             tickCount = 0;
-            centroidValid = false;
-            centroidDirty = phase == 1;
         }
     }
 
@@ -142,14 +128,17 @@ final class StaticToSandTask {
 
         tickCount++;
 
-        if (phase == 1 && centroidDirty) {
-            computeCentroid();
-        }
-
-        int snapshotLength = active.size();
         List<Entry> pendingActive = new ArrayList<>();
         Set<Entry> pendingSet = new HashSet<>();
 
+        for (Entry entry : new ArrayList<>(waiting)) {
+            if (entry.zone == Zone.WAITING
+                    && entry.level.getBlockState(entry.pos).getBlock() != entry.block) {
+                removeEntry(entry, pendingActive, pendingSet);
+            }
+        }
+
+        int snapshotLength = active.size();
         for (int i = 0; i < snapshotLength; i++) {
             Entry entry = active.get(i);
             if (entry.zone == Zone.ACTIVE && tickCount >= entry.eligibleTick) {
@@ -218,13 +207,12 @@ final class StaticToSandTask {
             active.clear();
         }
         appendUnique(active, additions);
-        centroidDirty = true;
     }
 
     private void processEntry(Entry entry, List<Entry> pendingActive, Set<Entry> pendingSet) {
         ServerLevel level = entry.level;
         if (level.getBlockState(entry.pos).getBlock() != entry.block) {
-            removeEntry(entry);
+            removeEntry(entry, pendingActive, pendingSet);
             return;
         }
 
@@ -236,10 +224,22 @@ final class StaticToSandTask {
         if (isAir(level, down) && !down.equals(entry.lastPos)) {
             target = down;
             movedDown = true;
-        } else if (!(effectivePhase == 2
-                && entry.pos.getX() == entry.centerX
-                && entry.pos.getZ() == entry.centerZ)) {
-            target = chooseHorizontalTarget(entry, effectivePhase);
+        } else {
+            int fallbackStartDirection = -1;
+            PreferredMove preferredMove = consumePreferredHorizontalTarget(entry, effectivePhase);
+            target = preferredMove.target();
+            fallbackStartDirection = preferredMove.fallbackStartDirection();
+            if (target == null
+                    && entry.horizontalMoves >= Config.ISOLATION_MOVE_LIMIT.getAsInt()
+                    && countActiveNeighbors(level, entry.pos, entry.blockId) == 0) {
+                park(entry);
+                return;
+            }
+            if (target == null && !(effectivePhase == 2
+                    && entry.pos.getX() == entry.centerX
+                    && entry.pos.getZ() == entry.centerZ)) {
+                target = chooseHorizontalTarget(entry, effectivePhase, fallbackStartDirection);
+            }
         }
 
         if (target == null) {
@@ -250,58 +250,47 @@ final class StaticToSandTask {
         moveEntry(entry, target, movedDown, pendingActive, pendingSet);
     }
 
-    private BlockPos chooseHorizontalTarget(Entry entry, int effectivePhase) {
+    private BlockPos chooseHorizontalTarget(
+            Entry entry, int effectivePhase, int fallbackStartDirection) {
         ServerLevel level = entry.level;
-        long currentDistance = dist2(entry.pos, entry.centerX, entry.centerZ);
+        long currentDistance = effectivePhase == 2
+                ? chebyshevDistance(entry.pos, entry.centerX, entry.centerZ) : 0L;
+        int startDirection = 0;
+        if (effectivePhase == 1) {
+            startDirection = fallbackStartDirection >= 0
+                    ? fallbackStartDirection
+                    : ThreadLocalRandom.current().nextInt(HORIZONTAL_DIRECTIONS.length);
+        }
         Candidate best = null;
 
         for (int directionIndex = 0; directionIndex < HORIZONTAL_DIRECTIONS.length; directionIndex++) {
-            BlockPos direction = HORIZONTAL_DIRECTIONS[directionIndex];
+            int selectedDirection = effectivePhase == 1
+                    ? (startDirection + directionIndex) % HORIZONTAL_DIRECTIONS.length
+                    : directionIndex;
+            BlockPos direction = HORIZONTAL_DIRECTIONS[selectedDirection];
             BlockPos candidatePos = entry.pos.offset(direction);
 
             if (!isAir(level, candidatePos) || candidatePos.equals(entry.lastPos)) {
                 continue;
             }
 
-            if (direction.getX() != 0 && direction.getZ() != 0) {
-                BlockPos sideX = new BlockPos(candidatePos.getX(), entry.pos.getY(), entry.pos.getZ());
-                BlockPos sideZ = new BlockPos(entry.pos.getX(), entry.pos.getY(), candidatePos.getZ());
-                if (!isAir(level, sideX) && !isAir(level, sideZ)) {
-                    continue;
-                }
+            long candidateDistance = effectivePhase == 2
+                    ? chebyshevDistance(candidatePos, entry.centerX, entry.centerZ) : 0L;
+            if (effectivePhase == 2 && candidateDistance > currentDistance) {
+                continue;
             }
 
-            long candidateDistance = dist2(candidatePos, entry.centerX, entry.centerZ);
-            if (entry.horizontalMoves >= HORIZONTAL_MOVE_THRESHOLD) {
-                if (effectivePhase == 1 && candidateDistance < currentDistance) {
-                    continue;
-                }
-                if (effectivePhase == 2 && candidateDistance > currentDistance) {
-                    continue;
-                }
+            if (effectivePhase == 1) {
+                return candidatePos;
             }
 
+            long score = 0L;
             int neighborCount = countNeighbors(level, candidatePos, entry.blockId);
-            long centroidDistance = phase == 1 && centroidValid
-                    ? dist2(candidatePos, centroidX, centroidZ)
-                    : 0L;
-
-            int neighborWeight = effectivePhase == 1
-                    ? PHASE_1_NEIGHBOR_WEIGHT : PHASE_2_NEIGHBOR_WEIGHT;
-            int distanceWeight = effectivePhase == 1
-                    ? PHASE_1_DISTANCE_WEIGHT : PHASE_2_DISTANCE_WEIGHT;
-            int centroidWeight = effectivePhase == 1
-                    ? PHASE_1_CENTROID_WEIGHT : PHASE_2_CENTROID_WEIGHT;
-            int isolationPenalty = effectivePhase == 1
-                    ? PHASE_1_ISOLATION_PENALTY : PHASE_2_ISOLATION_PENALTY;
-
-            long score = (long) neighborWeight * neighborCount
-                    - (long) distanceWeight * (candidateDistance - currentDistance)
-                    - (long) centroidWeight * centroidDistance
-                    - (neighborCount == 0 ? isolationPenalty : 0);
-
-            Candidate candidate = new Candidate(candidatePos, candidateDistance, directionIndex, score);
-            if (best == null || compareCandidates(candidate, best, effectivePhase) < 0) {
+            score = -(long) PHASE_2_DISTANCE_WEIGHT * (candidateDistance - currentDistance)
+                    + (long) PHASE_2_NEIGHBOR_WEIGHT * neighborCount;
+            Candidate candidate = new Candidate(
+                    candidatePos, candidateDistance, selectedDirection, score);
+            if (best == null || compareCandidates(candidate, best) < 0) {
                 best = candidate;
             }
         }
@@ -322,12 +311,58 @@ final class StaticToSandTask {
         return count;
     }
 
+    private int countActiveNeighbors(ServerLevel level, BlockPos pos, ResourceLocation blockId) {
+        int count = 0;
+        for (BlockPos direction : HORIZONTAL_DIRECTIONS) {
+            Entry neighbor = index.get(key(level, pos.offset(direction)));
+            if (neighbor != null
+                    && neighbor.zone == Zone.ACTIVE
+                    && neighbor.blockId.equals(blockId)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private PreferredMove consumePreferredHorizontalTarget(Entry entry, int effectivePhase) {
+        BlockPos preferredDirection = entry.preferredDirection;
+        entry.preferredDirection = null;
+        if (preferredDirection == null) {
+            return new PreferredMove(null, -1);
+        }
+
+        int preferredDirectionIndex = horizontalDirectionIndex(preferredDirection);
+        if (preferredDirectionIndex < 0) {
+            return new PreferredMove(null, -1);
+        }
+
+        BlockPos candidatePos = entry.pos.offset(preferredDirection);
+        if (!isAir(entry.level, candidatePos) || candidatePos.equals(entry.lastPos)) {
+            return new PreferredMove(
+                    null, (preferredDirectionIndex + 1) % HORIZONTAL_DIRECTIONS.length);
+        }
+
+        if (effectivePhase == 2) {
+            long currentDistance = chebyshevDistance(entry.pos, entry.centerX, entry.centerZ);
+            long candidateDistance = chebyshevDistance(candidatePos, entry.centerX, entry.centerZ);
+            if (candidateDistance > currentDistance) {
+                return new PreferredMove(
+                        null, (preferredDirectionIndex + 1) % HORIZONTAL_DIRECTIONS.length);
+            }
+        }
+        return new PreferredMove(candidatePos, -1);
+    }
+
     private void moveEntry(Entry entry, BlockPos target, boolean movedDown,
             List<Entry> pendingActive, Set<Entry> pendingSet) {
         ServerLevel level = entry.level;
         BlockPos oldPos = entry.pos;
 
-        level.setBlock(oldPos, Blocks.AIR.defaultBlockState(), SET_BLOCK_FLAGS);
+        BlockState replacement = Blocks.AIR.defaultBlockState();
+        if (movedDown && Config.REPLACE_FALLING_BLOCK_WITH_FLUID.getAsBoolean()) {
+            replacement = neighboringFluidSource(level, oldPos);
+        }
+        level.setBlock(oldPos, replacement, SET_BLOCK_FLAGS);
         level.setBlock(target, entry.block.defaultBlockState(), SET_BLOCK_FLAGS);
 
         index.remove(key(level, oldPos));
@@ -340,18 +375,13 @@ final class StaticToSandTask {
             entry.horizontalMoves = 0;
         } else {
             entry.horizontalMoves++;
-        }
-        centroidDirty = true;
-
-        for (BlockPos offset : PULL_BACK_OFFSETS) {
-            Entry waitingEntry = index.get(key(level, oldPos.offset(offset)));
-            if (waitingEntry != null && waitingEntry.zone == Zone.WAITING) {
-                waitingEntry.zone = Zone.ACTIVE;
-                if (pendingSet.add(waitingEntry)) {
-                    pendingActive.add(waitingEntry);
-                }
+            if (entry.horizontalMoves >= Config.HORIZONTAL_MOVE_LIMIT.getAsInt()) {
+                entry.horizontalLimitReached = true;
+                park(entry);
             }
         }
+        activateWaitingAround(
+                entry.level, oldPos, horizontalDirection(oldPos, target), pendingActive, pendingSet);
     }
 
     private void park(Entry entry) {
@@ -361,10 +391,47 @@ final class StaticToSandTask {
         }
     }
 
-    private void removeEntry(Entry entry) {
+    private void removeEntry(Entry entry, List<Entry> pendingActive, Set<Entry> pendingSet) {
         entry.zone = Zone.REMOVED;
         index.remove(key(entry.level, entry.pos));
-        centroidDirty = true;
+        activateWaitingAround(entry.level, entry.pos, null, pendingActive, pendingSet);
+    }
+
+    private void activateWaitingAround(ServerLevel level, BlockPos center, BlockPos preferredDirection,
+            List<Entry> pendingActive, Set<Entry> pendingSet) {
+        for (BlockPos offset : ACTIVATION_OFFSETS) {
+            Entry waitingEntry = index.get(key(level, center.offset(offset)));
+            if (waitingEntry != null
+                    && waitingEntry.zone == Zone.WAITING
+                    && (!waitingEntry.horizontalLimitReached || offset.equals(BlockPos.ZERO.above()))) {
+                waitingEntry.zone = Zone.ACTIVE;
+                waitingEntry.preferredDirection = preferredDirection;
+                if (pendingSet.add(waitingEntry)) {
+                    pendingActive.add(waitingEntry);
+                }
+            }
+        }
+    }
+
+    private static BlockPos horizontalDirection(BlockPos from, BlockPos to) {
+        if (from.getY() != to.getY()) {
+            return null;
+        }
+        int dx = to.getX() - from.getX();
+        int dz = to.getZ() - from.getZ();
+        if (Math.abs(dx) + Math.abs(dz) != 1) {
+            return null;
+        }
+        return new BlockPos(dx, 0, dz);
+    }
+
+    private static int horizontalDirectionIndex(BlockPos direction) {
+        for (int i = 0; i < HORIZONTAL_DIRECTIONS.length; i++) {
+            if (HORIZONTAL_DIRECTIONS[i].equals(direction)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private void appendUnique(List<Entry> target, List<Entry> additions) {
@@ -376,58 +443,12 @@ final class StaticToSandTask {
         }
     }
 
-    private void computeCentroid() {
-        long sumX = 0L;
-        long sumZ = 0L;
-        int count = 0;
-
-        for (Entry entry : active) {
-            if (entry.zone == Zone.ACTIVE) {
-                sumX += entry.pos.getX();
-                sumZ += entry.pos.getZ();
-                count++;
-            }
-        }
-        for (Entry entry : waiting) {
-            if (entry.zone == Zone.WAITING) {
-                sumX += entry.pos.getX();
-                sumZ += entry.pos.getZ();
-                count++;
-            }
-        }
-
-        if (count == 0) {
-            centroidX = 0;
-            centroidZ = 0;
-        } else {
-            centroidX = (int) Math.floorDiv(sumX, count);
-            centroidZ = (int) Math.floorDiv(sumZ, count);
-        }
-        centroidValid = true;
-        centroidDirty = false;
-    }
-
     private void advancePhaseOrFinish() {
         if (!active.isEmpty()) {
             return;
         }
 
-        if (phase == 1) {
-            active.addAll(waiting);
-            waiting.clear();
-            for (Entry entry : active) {
-                entry.zone = Zone.ACTIVE;
-                entry.lastPos = null;
-                entry.horizontalMoves = 0;
-                entry.forcePhase2 = false;
-            }
-            active.sort(entryComparator());
-            phase = 2;
-            centroidValid = false;
-            centroidDirty = false;
-        } else {
-            finishTask();
-        }
+        finishTask();
     }
 
     private void finishTask() {
@@ -447,10 +468,6 @@ final class StaticToSandTask {
         active.clear();
         waiting.clear();
         index.clear();
-        centroidX = 0;
-        centroidZ = 0;
-        centroidValid = false;
-        centroidDirty = false;
     }
 
     private static Center centerOf(List<BlockPos> selected) {
@@ -469,19 +486,31 @@ final class StaticToSandTask {
     }
 
     private static boolean isAir(ServerLevel level, BlockPos pos) {
-        return level.getBlockState(pos).isAir();
+        if (pos.getY() < level.getMinBuildHeight() || pos.getY() >= level.getMaxBuildHeight()) {
+            return false;
+        }
+        BlockState state = level.getBlockState(pos);
+        return state.isAir() || (Config.FLUIDS_ARE_AIR.getAsBoolean()
+                && !level.getFluidState(pos).isEmpty());
     }
 
-    private static long dist2(BlockPos pos, int centerX, int centerZ) {
-        long dx = (long) pos.getX() - centerX;
-        long dz = (long) pos.getZ() - centerZ;
-        return dx * dx + dz * dz;
+    private static BlockState neighboringFluidSource(ServerLevel level, BlockPos pos) {
+        for (BlockPos direction : HORIZONTAL_DIRECTIONS) {
+            var fluidState = level.getFluidState(pos.offset(direction));
+            if (fluidState.isSource()) {
+                return fluidState.createLegacyBlock();
+            }
+        }
+        return Blocks.AIR.defaultBlockState();
     }
 
-    /**
-     * Maps an offset to the nearest of the eight ring directions. The center
-     * itself uses index zero.
-     */
+    private static long chebyshevDistance(BlockPos pos, int centerX, int centerZ) {
+        long dx = Math.abs((long) pos.getX() - centerX);
+        long dz = Math.abs((long) pos.getZ() - centerZ);
+        return Math.max(dx, dz);
+    }
+
+    /** Maps an offset to the nearest cardinal direction. */
     private static int ringIndex(int dx, int dz) {
         if (dx == 0 && dz == 0) {
             return 0;
@@ -490,18 +519,16 @@ final class StaticToSandTask {
         if (angle < 0.0D) {
             angle += Math.PI * 2.0D;
         }
-        return (int) Math.floor((angle + Math.PI / 8.0D) / (Math.PI / 4.0D)) & 7;
+        return (int) Math.floor((angle + Math.PI / 4.0D) / (Math.PI / 2.0D)) & 3;
     }
 
-    private static int compareCandidates(Candidate left, Candidate right, int effectivePhase) {
+    private static int compareCandidates(Candidate left, Candidate right) {
         int scoreComparison = Long.compare(right.score, left.score);
         if (scoreComparison != 0) {
             return scoreComparison;
         }
 
-        int distanceComparison = effectivePhase == 1
-                ? Long.compare(right.distance, left.distance)
-                : Long.compare(left.distance, right.distance);
+        int distanceComparison = Long.compare(left.distance, right.distance);
         if (distanceComparison != 0) {
             return distanceComparison;
         }
@@ -510,7 +537,8 @@ final class StaticToSandTask {
 
     private static Comparator<Entry> entryComparator() {
         return Comparator
-                .comparingLong((Entry entry) -> dist2(entry.pos, entry.centerX, entry.centerZ))
+                .comparingLong((Entry entry) -> chebyshevDistance(
+                        entry.pos, entry.centerX, entry.centerZ))
                 .thenComparingInt(entry -> ringIndex(entry.pos.getX() - entry.centerX,
                         entry.pos.getZ() - entry.centerZ))
                 .thenComparingInt(entry -> entry.pos.getY());
@@ -532,6 +560,8 @@ final class StaticToSandTask {
 
     private record Candidate(BlockPos pos, long distance, int directionIndex, long score) {}
 
+    private record PreferredMove(BlockPos target, int fallbackStartDirection) {}
+
     private static final class Entry {
         private final ServerLevel level;
         private final Block block;
@@ -541,7 +571,9 @@ final class StaticToSandTask {
 
         private BlockPos pos;
         private BlockPos lastPos;
+        private BlockPos preferredDirection;
         private int horizontalMoves;
+        private boolean horizontalLimitReached;
         private Zone zone = Zone.ACTIVE;
         private boolean forcePhase2;
         private long eligibleTick;

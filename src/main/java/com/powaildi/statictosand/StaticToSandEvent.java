@@ -17,8 +17,15 @@ public final class StaticToSandEvent extends Event {
     private final BlockPos pos;
     private final Player player;
     private final int maxConnectedBlocks;
+    private final boolean approximateMatching;
 
     public StaticToSandEvent(ServerLevel level, BlockPos pos, Player player, int maxConnectedBlocks) {
+        this(level, pos, player, maxConnectedBlocks, false);
+    }
+
+    public StaticToSandEvent(
+            ServerLevel level, BlockPos pos, Player player, int maxConnectedBlocks,
+            boolean approximateMatching) {
         if (maxConnectedBlocks < 1) {
             throw new IllegalArgumentException("maxConnectedBlocks must be at least 1");
         }
@@ -26,10 +33,16 @@ public final class StaticToSandEvent extends Event {
         this.pos = pos.immutable();
         this.player = player;
         this.maxConnectedBlocks = maxConnectedBlocks;
+        this.approximateMatching = approximateMatching;
     }
 
     public StaticToSandEvent(ServerLevel level, BlockPos pos, int maxConnectedBlocks) {
-        this(level, pos, null, maxConnectedBlocks);
+        this(level, pos, null, maxConnectedBlocks, false);
+    }
+
+    public StaticToSandEvent(
+            ServerLevel level, BlockPos pos, int maxConnectedBlocks, boolean approximateMatching) {
+        this(level, pos, null, maxConnectedBlocks, approximateMatching);
     }
 
     public ServerLevel getLevel() {
@@ -46,5 +59,9 @@ public final class StaticToSandEvent extends Event {
 
     public int getMaxConnectedBlocks() {
         return maxConnectedBlocks;
+    }
+
+    public boolean isApproximateMatching() {
+        return approximateMatching;
     }
 }

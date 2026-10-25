@@ -1,0 +1,33 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:stone",
+    "minecraft:andesite",
+    "minecraft:polished_andesite",
+    "minecraft:granite",
+    "minecraft:polished_granite",
+    "minecraft:diorite",
+    "minecraft:polished_diorite",
+    "minecraft:deepslate",
+    "minecraft:cobbled_deepslate",
+    "minecraft:tuff",
+    "minecraft:dripstone_block",
+    "minecraft:pointed_dripstone",
+    "#minecraft:gold_ores",
+    "#minecraft:iron_ores",
+    "#minecraft:diamond_ores",
+    "#minecraft:redstone_ores",
+    "#minecraft:lapis_ores",
+    "#minecraft:coal_ores",
+    "#minecraft:emerald_ores",
+    "#minecraft:copper_ores",
+    {
+      "id": "c:ores",
+      "required": false
+    },
+    {
+      "id": "forge:ores",
+      "required": false
+    }
+  ]
+}

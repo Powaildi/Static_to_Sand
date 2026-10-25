@@ -3,6 +3,8 @@ Static to Sand
 
 This NeoForge 1.21.1 mod adds a `Static to Sand` item. Right-click a block
 with the item to select its connected cluster (up to 1024 blocks by default).
+While held in the main hand, the item increases block interaction range by 10
+blocks.
 The item limit is configurable with `staticToSandMaxBlocks`. Other callers can
 post a `StaticToSandEvent` with their own connected-block limit. The cluster
 is moved one block per server tick away from the selection center. A normal
@@ -13,7 +15,17 @@ blocks are flagged for Phase 2.
 
 Horizontal movement uses the four cardinal directions and Chebyshev distance.
 The `StaticToSandEvent` is posted on `NeoForge.EVENT_BUS` and accepts the server
-level, trigger position, player, and maximum connected-block count.
+level, trigger position, player, and maximum connected-block count. Its
+approximate-matching overload can select connected blocks sharing configured
+block tags instead of requiring the exact same block.
+The `approximateMatchingTags` configuration defaults to `minecraft:dirt` and
+`statictosand:approximate_stone`. The latter includes stone, andesite, granite,
+diorite, deepslate, tuff, dripstone, vanilla ores, and optional `c:ores` and
+`forge:ores` tags for ores added by other mods.
+While holding `static_to_sand`, Shift+left-click toggles approximate matching
+for the player. Shift+scroll wheel doubles or halves the player's selection
+limit; halving rounds up, and the value is clamped between 1 and
+`staticToSandMaxBlocks`.
 Gravity blocks can also be handled as events with `gravityBlockMode`: `NONE`
 (default), `WHITELIST`, `BLACKLIST`, or `ALL`. The whitelist and blacklist use
 the `statictosand:gravity_block_whitelist` and
@@ -34,6 +46,11 @@ targets; it is disabled by default.
 The `replaceFallingBlockWithFluid` option controls whether a downward-moving
 block leaves a neighboring horizontal fluid source in its old position; it is
 disabled by default.
+The `activeBlockLimit` option limits the active-zone blocks to 4096 by default.
+When the limit is exceeded, the oldest active blocks are moved to the waiting
+zone. The `waitingBlockLimit` option limits the waiting-zone blocks to 16384 by
+default; when it is exceeded, the oldest waiting blocks are removed from the
+task.
 
 The item is available in the vanilla Tools & Utilities creative tab and has the
 ID `statictosand:static_to_sand`.

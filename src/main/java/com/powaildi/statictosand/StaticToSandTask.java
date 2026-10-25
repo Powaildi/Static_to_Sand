@@ -8,11 +8,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -35,6 +37,7 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
  */
 @SuppressWarnings("null")
 public final class StaticToSandTask {
+    private static final Map<UUID, PlayerSettings> PLAYER_SETTINGS = new HashMap<>();
     private static final TagKey<Block> GRAVITY_BLOCK_WHITELIST = TagKey.create(
             Registries.BLOCK,
             ResourceLocation.fromNamespaceAndPath(StatictoSand.MODID, "gravity_block_whitelist"));
@@ -86,6 +89,62 @@ public final class StaticToSandTask {
     private int totalBlocks;
 
     @SubscribeEvent
+    public void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
+        if (toggleApproximateMatching(event.getEntity(), event.getItemStack())) {
+            event.setCanceled(true);
+        }
+    }
+
+    @SubscribeEvent
+    public void onLeftClickEmpty(PlayerInteractEvent.LeftClickEmpty event) {
+        toggleApproximateMatching(event.getEntity(), event.getItemStack());
+    }
+
+    private static boolean toggleApproximateMatching(
+            Player player, net.minecraft.world.item.ItemStack stack) {
+        if (!player.isShiftKeyDown() || !stack.is(StatictoSand.STATIC_TO_SAND.get())) {
+            return false;
+        }
+
+        PlayerSettings settings = settings(player);
+        settings.approximateMatching = !settings.approximateMatching;
+        player.displayClientMessage(
+                Component.literal("模糊匹配: ")
+                        .append(Component.literal(Boolean.toString(settings.approximateMatching))
+                                .withStyle(settings.approximateMatching
+                                        ? ChatFormatting.GREEN : ChatFormatting.RED)),
+                true);
+        return true;
+    }
+
+    public static void adjustSelectionLimit(ServerPlayer player, int direction) {
+        if (direction == 0) {
+            return;
+        }
+
+        PlayerSettings settings = settings(player);
+        int current = settings.maxConnectedBlocks;
+        int maximum = Config.STATIC_TO_SAND_MAX_BLOCKS.getAsInt();
+        settings.maxConnectedBlocks = direction > 0
+                ? Math.min(maximum, doubled(current))
+                : Math.max(1, (current + 1) / 2);
+        player.displayClientMessage(
+                Component.literal("选择方块数: ")
+                        .append(Component.literal(Integer.toString(settings.maxConnectedBlocks))
+                                .withStyle(ChatFormatting.AQUA)),
+                true);
+    }
+
+    private static int doubled(int value) {
+        return value > Integer.MAX_VALUE / 2 ? Integer.MAX_VALUE : value * 2;
+    }
+
+    private static PlayerSettings settings(Player player) {
+        return PLAYER_SETTINGS.computeIfAbsent(
+                player.getUUID(), ignored -> new PlayerSettings(Config.STATIC_TO_SAND_MAX_BLOCKS.getAsInt()));
+    }
+
+    @SubscribeEvent
     public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
         if (!(event.getLevel() instanceof ServerLevel level)
                 || event.getHand() != InteractionHand.MAIN_HAND
@@ -94,7 +153,9 @@ public final class StaticToSandTask {
         }
 
         NeoForge.EVENT_BUS.post(new StaticToSandEvent(
-                level, event.getPos(), event.getEntity(), Config.STATIC_TO_SAND_MAX_BLOCKS.getAsInt()));
+                level, event.getPos(), event.getEntity(),
+                settings(event.getEntity()).maxConnectedBlocks,
+                settings(event.getEntity()).approximateMatching));
     }
 
     @SubscribeEvent
@@ -106,8 +167,11 @@ public final class StaticToSandTask {
         }
 
         Block block = clickedState.getBlock();
-        ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(block);
-        List<BlockPos> selected = selectBlocks(level, event.getPos(), block, event.getMaxConnectedBlocks());
+        List<TagKey<Block>> approximateTags = event.isApproximateMatching()
+                ? approximateMatchingTags(clickedState)
+                : List.of();
+        List<BlockPos> selected = selectBlocks(
+                level, event.getPos(), block, approximateTags, event.getMaxConnectedBlocks());
         if (selected.isEmpty()) {
             return;
         }
@@ -123,7 +187,7 @@ public final class StaticToSandTask {
             resetTaskState();
         }
 
-        addSelection(level, selected, block, blockId, center, shift);
+        addSelection(level, selected, center, shift);
 
         if (player instanceof ServerPlayer serverPlayer && !(player instanceof FakePlayer)) {
             participants.add(serverPlayer);
@@ -184,12 +248,13 @@ public final class StaticToSandTask {
         appendUnique(active, pendingActive);
         active.removeIf(entry -> entry.zone != Zone.ACTIVE);
         waiting.removeIf(entry -> entry.zone != Zone.WAITING);
+        enforceQueueLimits(pendingActive, pendingSet);
 
         advancePhaseOrFinish();
     }
 
-    private List<BlockPos> selectBlocks(
-            ServerLevel level, BlockPos start, Block block, int maxConnectedBlocks) {
+    private List<BlockPos> selectBlocks(ServerLevel level, BlockPos start, Block block,
+            List<TagKey<Block>> approximateTags, int maxConnectedBlocks) {
         ArrayDeque<BlockPos> queue = new ArrayDeque<>();
         Set<BlockPos> visited = new HashSet<>();
         List<BlockPos> selected = new ArrayList<>();
@@ -199,7 +264,9 @@ public final class StaticToSandTask {
 
         while (!queue.isEmpty() && selected.size() < maxConnectedBlocks) {
             BlockPos pos = queue.removeFirst();
-            if (level.getBlockState(pos).getBlock() != block) {
+            BlockState state = level.getBlockState(pos);
+            if (state.getBlock() != block
+                    && !matchesApproximateTags(state, approximateTags)) {
                 continue;
             }
 
@@ -218,8 +285,8 @@ public final class StaticToSandTask {
         return selected;
     }
 
-    private void addSelection(ServerLevel level, List<BlockPos> selected, Block block,
-            ResourceLocation blockId, Center center, boolean forcePhase2) {
+    private void addSelection(
+            ServerLevel level, List<BlockPos> selected, Center center, boolean forcePhase2) {
         List<Entry> additions = new ArrayList<>();
         long eligibleTick = tickCount + 1;
         for (BlockPos pos : selected) {
@@ -228,6 +295,8 @@ public final class StaticToSandTask {
                 continue;
             }
 
+            Block block = level.getBlockState(pos).getBlock();
+            ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(block);
             Entry entry = new Entry(level, pos, block, blockId, center, forcePhase2, eligibleTick);
             index.put(key, entry);
             additions.add(entry);
@@ -243,6 +312,32 @@ public final class StaticToSandTask {
             active.clear();
         }
         appendUnique(active, additions);
+        enforceQueueLimits(new ArrayList<>(), new HashSet<>());
+    }
+
+    private static List<TagKey<Block>> approximateMatchingTags(BlockState triggerState) {
+        List<TagKey<Block>> matchingTags = new ArrayList<>();
+        for (String tagId : Config.APPROXIMATE_MATCHING_TAGS.get()) {
+            ResourceLocation location = ResourceLocation.tryParse(tagId);
+            if (location == null) {
+                continue;
+            }
+            TagKey<Block> tag = TagKey.create(Registries.BLOCK, location);
+            if (triggerState.is(tag)) {
+                matchingTags.add(tag);
+            }
+        }
+        return matchingTags;
+    }
+
+    private static boolean matchesApproximateTags(
+            BlockState state, List<TagKey<Block>> approximateTags) {
+        for (TagKey<Block> tag : approximateTags) {
+            if (state.is(tag)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void processEntry(Entry entry, List<Entry> pendingActive, Set<Entry> pendingSet) {
@@ -427,6 +522,27 @@ public final class StaticToSandTask {
         }
     }
 
+    private void enforceQueueLimits(List<Entry> pendingActive, Set<Entry> pendingSet) {
+        while (active.size() > Config.ACTIVE_BLOCK_LIMIT.getAsInt()) {
+            Entry oldest = active.remove(0);
+            if (oldest.zone == Zone.ACTIVE) {
+                oldest.zone = Zone.WAITING;
+                waiting.add(oldest);
+            }
+        }
+
+        while (waiting.size() > Config.WAITING_BLOCK_LIMIT.getAsInt()) {
+            Entry oldest = waiting.remove(0);
+            if (oldest.zone == Zone.WAITING) {
+                removeEntry(oldest, pendingActive, pendingSet);
+            }
+        }
+
+        appendUnique(active, pendingActive);
+        pendingActive.clear();
+        pendingSet.clear();
+    }
+
     private void removeEntry(Entry entry, List<Entry> pendingActive, Set<Entry> pendingSet) {
         entry.zone = Zone.REMOVED;
         index.remove(key(entry.level, entry.pos));
@@ -598,6 +714,15 @@ public final class StaticToSandTask {
 
     private record PreferredMove(BlockPos target, int fallbackStartDirection) {}
 
+    private static final class PlayerSettings {
+        private int maxConnectedBlocks;
+        private boolean approximateMatching;
+
+        private PlayerSettings(int maxConnectedBlocks) {
+            this.maxConnectedBlocks = maxConnectedBlocks;
+        }
+    }
+
     private static final class Entry {
         private final ServerLevel level;
         private final Block block;
@@ -625,5 +750,6 @@ public final class StaticToSandTask {
             this.forcePhase2 = forcePhase2;
             this.eligibleTick = eligibleTick;
         }
+
     }
 }

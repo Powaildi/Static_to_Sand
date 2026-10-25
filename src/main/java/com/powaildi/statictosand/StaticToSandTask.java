@@ -39,6 +39,7 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
  */
 @SuppressWarnings("null")
 public final class StaticToSandTask {
+    private static StaticToSandTask INSTANCE;
     private static final Map<UUID, PlayerSettings> PLAYER_SETTINGS = new HashMap<>();
     private static final TagKey<Block> GRAVITY_BLOCK_WHITELIST = TagKey.create(
             Registries.BLOCK,
@@ -90,6 +91,35 @@ public final class StaticToSandTask {
     private long tickCount;
     private int totalBlocks;
 
+    public StaticToSandTask() {
+        INSTANCE = this;
+    }
+
+    public static boolean triggerAttraction(
+            ServerLevel level, BlockPos sourcePos, BlockPos target, int maxBlocks,
+            boolean approximateMatching, boolean protectBlockEntities) {
+        StaticToSandTask task = INSTANCE;
+        BlockState clickedState = level.getBlockState(sourcePos);
+        List<TagKey<Block>> approximateTags = approximateMatching
+                ? approximateMatchingTags(clickedState)
+                : List.of();
+        List<BlockPos> selected = task.selectBlocks(
+                level, sourcePos, clickedState.getBlock(), approximateTags, maxBlocks);
+        if (selected.isEmpty()) {
+            return false;
+        }
+
+        if (!task.running) {
+            task.resetTaskState();
+        }
+        task.addSelection(
+                level, selected, new Center(target.getX(), target.getZ()), true,
+                protectBlockEntities);
+        task.phase = 2;
+        task.running = true;
+        return true;
+    }
+
     @SubscribeEvent
     public void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
         if (toggleApproximateMatching(event.getEntity(), event.getItemStack())) {
@@ -112,7 +142,8 @@ public final class StaticToSandTask {
         settings.approximateMatching = !settings.approximateMatching;
         player.displayClientMessage(
                 Component.translatable("statictosand.message.approximate_matching")
-                        .append(Component.literal(Boolean.toString(settings.approximateMatching))
+                        .append(Component.translatable(settings.approximateMatching
+                                ? "statictosand.value.true" : "statictosand.value.false")
                                 .withStyle(settings.approximateMatching
                                         ? ChatFormatting.GREEN : ChatFormatting.RED)),
                 true);

@@ -16,5 +16,13 @@
   "statictosand.configuration.replaceFallingBlockWithFluid": "Replace Falling Blocks with Fluid",
   "statictosand.message.approximate_matching": "Approximate matching: ",
   "statictosand.message.selection_limit": "Block selection limit: ",
-  "statictosand.message.task_finished": "Moved %1$s blocks in %2$s ticks"
+  "statictosand.message.task_finished": "Moved %1$s blocks in %2$s ticks",
+  "statictosand.value.true": "true",
+  "statictosand.value.false": "false",
+  "statictosand.command.static_to_sand.failed": "Static-to-sand was not triggered: the target is air or the event was canceled",
+  "statictosand.command.static_to_sand.success": "Static-to-sand event triggered",
+  "statictosand.command.attraction.invalid_level": "The attraction event cannot be triggered in the current dimension",
+  "statictosand.command.attraction.source_is_air": "Attraction was not triggered: the source position is air",
+  "statictosand.command.attraction.no_blocks": "Attraction was not triggered: no selectable blocks",
+  "statictosand.command.attraction.success": "Static attraction event triggered"
 }

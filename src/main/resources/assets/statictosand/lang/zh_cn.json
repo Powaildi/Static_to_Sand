@@ -16,5 +16,13 @@
   "statictosand.configuration.replaceFallingBlockWithFluid": "下落方块返还流体源",
   "statictosand.message.approximate_matching": "模糊匹配: ",
   "statictosand.message.selection_limit": "选择方块数: ",
-  "statictosand.message.task_finished": "移动了%1$s个方块，经历了%2$s tick"
+  "statictosand.message.task_finished": "移动了%1$s个方块，经历了%2$s tick",
+  "statictosand.value.true": "是",
+  "statictosand.value.false": "否",
+  "statictosand.command.static_to_sand.failed": "未触发化地为砂：目标位置为空气或事件已取消",
+  "statictosand.command.static_to_sand.success": "已触发化地为砂事件",
+  "statictosand.command.attraction.invalid_level": "无法在当前维度触发吸引事件",
+  "statictosand.command.attraction.source_is_air": "未触发化地为砂吸引：源位置为空气",
+  "statictosand.command.attraction.no_blocks": "未触发化地为砂吸引：没有可选择的方块",
+  "statictosand.command.attraction.success": "已触发化地为砂吸引事件"
 }

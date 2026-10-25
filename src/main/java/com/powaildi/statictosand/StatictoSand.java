@@ -45,6 +45,7 @@ public class StatictoSand {
 
         // Register the task listener for both item interactions and StaticToSandEvent.
         NeoForge.EVENT_BUS.register(new StaticToSandTask());
+        NeoForge.EVENT_BUS.register(new StaticToSandCommands());
 
         // Add the item to the tools and utilities creative tab
         modEventBus.addListener(this::addCreative);

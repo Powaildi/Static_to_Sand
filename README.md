@@ -14,6 +14,18 @@ blocks are flagged for Phase 2.
 Horizontal movement uses the four cardinal directions and Chebyshev distance.
 The `StaticToSandEvent` is posted on `NeoForge.EVENT_BUS` and accepts the server
 level, trigger position, player, and maximum connected-block count.
+Gravity blocks can also be handled as events with `gravityBlockMode`: `NONE`
+(default), `WHITELIST`, `BLACKLIST`, or `ALL`. The whitelist and blacklist use
+the `statictosand:gravity_block_whitelist` and
+`statictosand:gravity_block_blacklist` block tags. The default whitelist
+contains sand, red sand, and gravel; the default blacklist contains all
+anvils, the dragon egg, suspicious sand, and suspicious gravel. These blocks
+are not handled in blacklist mode. `gravityBlockMaxBlocks` controls the
+default selection limit for these events and defaults to 8.
+The gravity hook is injected into `FallingBlock.tick` before the vanilla
+falling-block entity is created, so handled blocks never become falling-block
+entities. Brushable gravity blocks such as suspicious sand and suspicious
+gravel are handled through a corresponding `BrushableBlock.tick` hook.
 After the configured number of horizontal moves, an entry enters the waiting
 zone. The default `horizontalMoveLimit` is 32 and can be changed in
 `run/config/statictosand-common.toml`.

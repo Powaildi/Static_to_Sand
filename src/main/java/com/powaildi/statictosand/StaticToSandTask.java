@@ -12,10 +12,12 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Block;
@@ -32,7 +34,14 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
  * cluster away from its center; shift-click starts phase two toward the player.
  */
 @SuppressWarnings("null")
-final class StaticToSandTask {
+public final class StaticToSandTask {
+    private static final TagKey<Block> GRAVITY_BLOCK_WHITELIST = TagKey.create(
+            Registries.BLOCK,
+            ResourceLocation.fromNamespaceAndPath(StatictoSand.MODID, "gravity_block_whitelist"));
+    private static final TagKey<Block> GRAVITY_BLOCK_BLACKLIST = TagKey.create(
+            Registries.BLOCK,
+            ResourceLocation.fromNamespaceAndPath(StatictoSand.MODID, "gravity_block_blacklist"));
+
     /** Only notify clients; no neighbour updates, scheduled ticks or drops. */
     private static final int SET_BLOCK_FLAGS = 2;
 
@@ -104,7 +113,7 @@ final class StaticToSandTask {
         }
 
         Player player = event.getPlayer();
-        boolean shift = player.isShiftKeyDown();
+        boolean shift = player != null && player.isShiftKeyDown();
         Center center = shift
                 ? new Center(player.getBlockX(), player.getBlockZ())
                 : centerOf(selected);
@@ -125,6 +134,25 @@ final class StaticToSandTask {
             phase = shift ? 2 : 1;
             tickCount = 0;
         }
+    }
+
+    public static boolean handleGravityBlock(ServerLevel level, BlockPos pos, BlockState state) {
+        if (!shouldHandleGravityBlock(state)) {
+            return false;
+        }
+
+        NeoForge.EVENT_BUS.post(new StaticToSandEvent(
+                level, pos, Config.GRAVITY_BLOCK_MAX_BLOCKS.getAsInt()));
+        return true;
+    }
+
+    private static boolean shouldHandleGravityBlock(BlockState state) {
+        return switch (Config.GRAVITY_BLOCK_MODE.get()) {
+            case NONE -> false;
+            case WHITELIST -> state.is(GRAVITY_BLOCK_WHITELIST);
+            case BLACKLIST -> !state.is(GRAVITY_BLOCK_BLACKLIST);
+            case ALL -> true;
+        };
     }
 
     @SubscribeEvent

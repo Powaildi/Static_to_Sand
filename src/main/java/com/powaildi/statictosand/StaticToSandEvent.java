@@ -28,6 +28,10 @@ public final class StaticToSandEvent extends Event {
         this.maxConnectedBlocks = maxConnectedBlocks;
     }
 
+    public StaticToSandEvent(ServerLevel level, BlockPos pos, int maxConnectedBlocks) {
+        this(level, pos, null, maxConnectedBlocks);
+    }
+
     public ServerLevel getLevel() {
         return level;
     }

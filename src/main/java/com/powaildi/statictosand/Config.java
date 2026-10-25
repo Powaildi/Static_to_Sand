@@ -10,6 +10,14 @@ public class Config {
             .comment("Maximum number of connected blocks selected by the static_to_sand item")
             .defineInRange("staticToSandMaxBlocks", 1024, 1, Integer.MAX_VALUE);
 
+    public static final ModConfigSpec.EnumValue<GravityBlockMode> GRAVITY_BLOCK_MODE = BUILDER
+            .comment("Whether gravity blocks are handled as StaticToSandEvents")
+            .defineEnum("gravityBlockMode", GravityBlockMode.NONE);
+
+    public static final ModConfigSpec.IntValue GRAVITY_BLOCK_MAX_BLOCKS = BUILDER
+            .comment("Maximum number of connected blocks selected for gravity block events")
+            .defineInRange("gravityBlockMaxBlocks", 3, 1, Integer.MAX_VALUE);
+
     public static final ModConfigSpec.IntValue HORIZONTAL_MOVE_LIMIT = BUILDER
             .comment("Number of horizontal moves before an entry is put into the waiting zone")
             .defineInRange("horizontalMoveLimit", 32, 1, Integer.MAX_VALUE);
@@ -27,4 +35,11 @@ public class Config {
             .define("replaceFallingBlockWithFluid", false);
 
     static final ModConfigSpec SPEC = BUILDER.build();
+
+    public enum GravityBlockMode {
+        NONE,
+        WHITELIST,
+        BLACKLIST,
+        ALL
+    }
 }

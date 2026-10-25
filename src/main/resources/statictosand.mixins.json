@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "com.powaildi.statictosand.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "FallingBlockMixin",
+    "BrushableBlockMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

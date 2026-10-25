@@ -1,0 +1,11 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:anvil",
+    "minecraft:chipped_anvil",
+    "minecraft:damaged_anvil",
+    "minecraft:dragon_egg",
+    "minecraft:suspicious_sand",
+    "minecraft:suspicious_gravel"
+  ]
+}

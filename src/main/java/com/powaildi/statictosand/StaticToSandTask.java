@@ -2,6 +2,7 @@ package com.powaildi.statictosand;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -277,17 +278,16 @@ public final class StaticToSandTask {
         long tickStartNanos = System.nanoTime();
         tickTimingsNanos.clear();
         tickTimingCounts.clear();
-        Set<ServerLevel> tickingLevels = new HashSet<>();
-        for (Entry entry : active) {
-            if (hasLevelAdvanced(entry.level)) {
-                tickingLevels.add(entry.level);
+        Set<ServerLevel> levelsWithEntries = index.keySet();
+        Set<ServerLevel> tickingLevels =
+                Collections.newSetFromMap(new IdentityHashMap<>());
+        measureVoid("levelTickDetection", () -> {
+            for (ServerLevel level : levelsWithEntries) {
+                if (hasLevelAdvanced(level)) {
+                    tickingLevels.add(level);
+                }
             }
-        }
-        for (Entry entry : waiting) {
-            if (hasLevelAdvanced(entry.level)) {
-                tickingLevels.add(entry.level);
-            }
-        }
+        });
         if (tickingLevels.isEmpty()) {
             return;
         }
@@ -297,15 +297,8 @@ public final class StaticToSandTask {
         List<Entry> pendingActive = new ArrayList<>();
         Set<Entry> pendingSet = new HashSet<>();
 
-        measureVoid("waitingIntegrityCheck", () -> {
-            for (Entry entry : new ArrayList<>(waiting)) {
-                if (tickingLevels.contains(entry.level)
-                        && entry.zone == Zone.WAITING
-                        && entry.level.getBlockState(entry.pos).getBlock() != entry.block) {
-                    measureVoid("removeEntry", () -> removeEntry(entry, pendingActive, pendingSet));
-                }
-            }
-        });
+        measureVoid("waitingIntegrityCheck",
+                () -> checkWaitingIntegrity(tickingLevels, pendingActive, pendingSet));
 
         int snapshotLength = active.size();
         for (int i = 0; i < snapshotLength; i++) {
@@ -319,13 +312,6 @@ public final class StaticToSandTask {
         measureVoid("appendUnique", () -> appendUnique(active, pendingActive));
         measureVoid("queueCleanup", () -> {
             active.removeIf(entry -> entry.zone != Zone.ACTIVE);
-            waiting.removeIf(entry -> {
-                if (entry.zone == Zone.WAITING) {
-                    return false;
-                }
-                entry.inWaitingList = false;
-                return true;
-            });
         });
         measureVoid("enforceQueueLimits", () -> enforceQueueLimits(pendingActive, pendingSet));
 
@@ -655,35 +641,37 @@ public final class StaticToSandTask {
 
     private void park(Entry entry) {
         entry.zone = Zone.WAITING;
-        if (!entry.inWaitingList) {
-            entry.inWaitingList = true;
+        if (!waiting.contains(entry)) {
             waiting.add(entry);
+        }
+    }
+
+    private void checkWaitingIntegrity(
+            Set<ServerLevel> tickingLevels, List<Entry> pendingActive, Set<Entry> pendingSet) {
+        for (Entry entry : new ArrayList<>(waiting)) {
+            if (tickingLevels.contains(entry.level)
+                    && entry.zone == Zone.WAITING
+                    && entry.level.getBlockState(entry.pos).getBlock() != entry.block) {
+                measureVoid("removeEntry", () -> removeEntry(entry, pendingActive, pendingSet));
+            }
         }
     }
 
     private void enforceQueueLimits(List<Entry> pendingActive, Set<Entry> pendingSet) {
         appendUnique(active, pendingActive);
         active.removeIf(entry -> entry.zone != Zone.ACTIVE);
-        waiting.removeIf(entry -> {
-            if (entry.zone == Zone.WAITING) {
-                return false;
-            }
-            entry.inWaitingList = false;
-            return true;
-        });
+        waiting.removeIf(entry -> entry.zone != Zone.WAITING);
 
         while (active.size() > Config.ACTIVE_BLOCK_LIMIT.getAsInt()) {
             Entry oldest = active.remove(0);
             if (oldest.zone == Zone.ACTIVE) {
                 oldest.zone = Zone.WAITING;
-                oldest.inWaitingList = true;
                 waiting.add(oldest);
             }
         }
 
         while (waiting.size() > Config.WAITING_BLOCK_LIMIT.getAsInt()) {
             Entry oldest = waiting.remove(0);
-            oldest.inWaitingList = false;
             if (oldest.zone == Zone.WAITING) {
                 measureVoid("removeEntry", () -> removeEntry(oldest, pendingActive, pendingSet));
             }
@@ -951,7 +939,6 @@ public final class StaticToSandTask {
         private int horizontalMoves;
         private boolean horizontalLimitReached;
         private Zone zone = Zone.ACTIVE;
-        private boolean inWaitingList;
         private boolean forcePhase2;
         private final boolean protectBlockEntities;
         private long eligibleTick;

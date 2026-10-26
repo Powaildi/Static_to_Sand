@@ -2,6 +2,7 @@ package com.powaildi.statictosand;
 
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Rarity;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
 import net.minecraft.world.entity.EquipmentSlotGroup;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
@@ -28,7 +29,7 @@ public class StatictoSand {
 
     public static final DeferredItem<Item> STATIC_TO_SAND = ITEMS.registerSimpleItem(
             "static_to_sand",
-            new Item.Properties().attributes(ItemAttributeModifiers.builder()
+            new Item.Properties().rarity(Rarity.UNCOMMON).attributes(ItemAttributeModifiers.builder()
                     .add(Attributes.BLOCK_INTERACTION_RANGE,
                             new AttributeModifier(
                                     ResourceLocation.fromNamespaceAndPath(MODID, "block_interaction_range"),

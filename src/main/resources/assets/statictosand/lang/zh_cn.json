@@ -1,5 +1,16 @@
 {
   "item.statictosand.static_to_sand": "化地为砂",
+  "statictosand.tooltip.shift": "按住 %s 展开操作说明",
+  "statictosand.tooltip.control.shift": "Shift",
+  "statictosand.tooltip.separator": "-----------------------",
+  "statictosand.tooltip.control.right_click": "右键",
+  "statictosand.tooltip.control.shift_right_click": "Shift + 右键",
+  "statictosand.tooltip.control.shift_left_click": "Shift + 左键",
+  "statictosand.tooltip.control.shift_scroll": "Shift + 滚轮",
+  "statictosand.tooltip.right_click": "%s 让连锁的方块像现实中的沙子一样落下",
+  "statictosand.tooltip.shift_right_click": "%s 将它们引导到你的位置",
+  "statictosand.tooltip.shift_left_click": "%s 切换是否模糊匹配",
+  "statictosand.tooltip.shift_scroll": "%s 调整最大连锁数量",
 
   "statictosand.configuration.title": "化地为砂配置",
   "statictosand.configuration.section.statictosand.common.toml": "化地为砂配置",

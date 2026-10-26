@@ -68,14 +68,16 @@ public final class StaticToSandTask {
     };
     /** Horizontal neighbors plus the block directly above the trigger position. */
     private static final BlockPos[] ACTIVATION_OFFSETS = {
-            new BlockPos(-1, 0, -1),
             new BlockPos(-1, 0, 0),
-            new BlockPos(-1, 0, 1),
             new BlockPos(0, 0, -1),
             new BlockPos(0, 0, 1),
-            new BlockPos(1, 0, -1),
             new BlockPos(1, 0, 0),
-            new BlockPos(1, 0, 1),
+
+            // new BlockPos(-1, 0, -1),
+            // new BlockPos(-1, 0, 1),
+            // new BlockPos(1, 0, -1),
+            // new BlockPos(1, 0, 1),
+
             new BlockPos(0, 1, 0)
     };
     private static final int PHASE_2_NEIGHBOR_WEIGHT = 12;
@@ -84,6 +86,7 @@ public final class StaticToSandTask {
     private final List<Entry> active = new ArrayList<>();
     private final List<Entry> waiting = new ArrayList<>();
     private final Map<PositionKey, Entry> index = new HashMap<>();
+    private final Map<ResourceLocation, Long> lastLevelGameTimes = new HashMap<>();
     private final Set<ServerPlayer> participants = new HashSet<>();
 
     private boolean running;
@@ -263,13 +266,29 @@ public final class StaticToSandTask {
             return;
         }
 
+        Set<ServerLevel> tickingLevels = new HashSet<>();
+        for (Entry entry : active) {
+            if (hasLevelAdvanced(entry.level)) {
+                tickingLevels.add(entry.level);
+            }
+        }
+        for (Entry entry : waiting) {
+            if (hasLevelAdvanced(entry.level)) {
+                tickingLevels.add(entry.level);
+            }
+        }
+        if (tickingLevels.isEmpty()) {
+            return;
+        }
+
         tickCount++;
 
         List<Entry> pendingActive = new ArrayList<>();
         Set<Entry> pendingSet = new HashSet<>();
 
         for (Entry entry : new ArrayList<>(waiting)) {
-            if (entry.zone == Zone.WAITING
+            if (tickingLevels.contains(entry.level)
+                    && entry.zone == Zone.WAITING
                     && entry.level.getBlockState(entry.pos).getBlock() != entry.block) {
                 removeEntry(entry, pendingActive, pendingSet);
             }
@@ -278,7 +297,8 @@ public final class StaticToSandTask {
         int snapshotLength = active.size();
         for (int i = 0; i < snapshotLength; i++) {
             Entry entry = active.get(i);
-            if (entry.zone == Zone.ACTIVE && tickCount >= entry.eligibleTick) {
+            if (tickingLevels.contains(entry.level)
+                    && entry.zone == Zone.ACTIVE && tickCount >= entry.eligibleTick) {
                 processEntry(entry, pendingActive, pendingSet);
             }
         }
@@ -289,6 +309,13 @@ public final class StaticToSandTask {
         enforceQueueLimits(pendingActive, pendingSet);
 
         advancePhaseOrFinish();
+    }
+
+    private boolean hasLevelAdvanced(ServerLevel level) {
+        ResourceLocation dimension = level.dimension().location();
+        long gameTime = level.getGameTime();
+        Long previousGameTime = lastLevelGameTimes.put(dimension, gameTime);
+        return previousGameTime == null || gameTime > previousGameTime;
     }
 
     private List<BlockPos> selectBlocks(ServerLevel level, BlockPos start, Block block,
@@ -327,6 +354,7 @@ public final class StaticToSandTask {
             ServerLevel level, List<BlockPos> selected, Center center, boolean forcePhase2,
             boolean protectBlockEntities) {
         List<Entry> additions = new ArrayList<>();
+        lastLevelGameTimes.putIfAbsent(level.dimension().location(), level.getGameTime());
         long eligibleTick = tickCount + 1;
         for (BlockPos pos : selected) {
             PositionKey key = key(level, pos);
@@ -676,6 +704,7 @@ public final class StaticToSandTask {
         active.clear();
         waiting.clear();
         index.clear();
+        lastLevelGameTimes.clear();
     }
 
     private static Center centerOf(List<BlockPos> selected) {

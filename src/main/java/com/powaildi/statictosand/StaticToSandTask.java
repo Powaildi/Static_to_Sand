@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -67,25 +68,24 @@ public final class StaticToSandTask {
             new BlockPos(0, -1, 0)
     };
     /** Horizontal neighbors plus the block directly above the trigger position. */
-    private static final BlockPos[] ACTIVATION_OFFSETS = {
-            new BlockPos(-1, 0, 0),
-            new BlockPos(0, 0, -1),
-            new BlockPos(0, 0, 1),
-            new BlockPos(1, 0, 0),
-
-            // new BlockPos(-1, 0, -1),
-            // new BlockPos(-1, 0, 1),
-            // new BlockPos(1, 0, -1),
-            // new BlockPos(1, 0, 1),
-
-            new BlockPos(0, 1, 0)
+    private static final int[][] ACTIVATION_OFFSETS = {
+            {-1, 0, 0},
+            {0, 0, -1},
+            {0, 0, 1},
+            {1, 0, 0},
+            {0, 1, 0}
     };
     private static final int PHASE_2_NEIGHBOR_WEIGHT = 12;
     private static final int PHASE_2_DISTANCE_WEIGHT = 2;
 
     private final List<Entry> active = new ArrayList<>();
     private final List<Entry> waiting = new ArrayList<>();
-    private final Map<PositionKey, Entry> index = new HashMap<>();
+    /**
+     * Entries are partitioned by world so a coordinate key only contains the
+     * packed block position. This avoids allocating a composite key and
+     * hashing the dimension on every neighbour lookup.
+     */
+    private final Map<ServerLevel, Map<Long, Entry>> index = new IdentityHashMap<>();
     private final Map<ResourceLocation, Long> lastLevelGameTimes = new HashMap<>();
     private final Set<ServerPlayer> participants = new HashSet<>();
 
@@ -356,9 +356,11 @@ public final class StaticToSandTask {
         List<Entry> additions = new ArrayList<>();
         lastLevelGameTimes.putIfAbsent(level.dimension().location(), level.getGameTime());
         long eligibleTick = tickCount + 1;
+        Map<Long, Entry> levelIndex = index.computeIfAbsent(
+                level, ignored -> new HashMap<>(Math.max(16, (int) (selected.size() / 0.75f) + 1)));
         for (BlockPos pos : selected) {
-            PositionKey key = key(level, pos);
-            if (index.containsKey(key)) {
+            long key = pos.asLong();
+            if (levelIndex.containsKey(key)) {
                 continue;
             }
 
@@ -366,7 +368,7 @@ public final class StaticToSandTask {
             ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(block);
             Entry entry = new Entry(
                     level, pos, block, blockId, center, forcePhase2, protectBlockEntities, eligibleTick);
-            index.put(key, entry);
+            levelIndex.put(key, entry);
             additions.add(entry);
             totalBlocks++;
         }
@@ -499,7 +501,10 @@ public final class StaticToSandTask {
     private int countNeighbors(ServerLevel level, BlockPos pos, ResourceLocation blockId) {
         int count = 0;
         for (BlockPos direction : HORIZONTAL_DIRECTIONS) {
-            Entry neighbor = index.get(key(level, pos.offset(direction)));
+            Entry neighbor = getEntry(level,
+                    pos.getX() + direction.getX(),
+                    pos.getY() + direction.getY(),
+                    pos.getZ() + direction.getZ());
             if (neighbor != null
                     && (neighbor.zone == Zone.ACTIVE || neighbor.zone == Zone.WAITING)
                     && neighbor.blockId.equals(blockId)) {
@@ -512,7 +517,10 @@ public final class StaticToSandTask {
     private int countActiveNeighbors(ServerLevel level, BlockPos pos, ResourceLocation blockId) {
         int count = 0;
         for (BlockPos direction : HORIZONTAL_DIRECTIONS) {
-            Entry neighbor = index.get(key(level, pos.offset(direction)));
+            Entry neighbor = getEntry(level,
+                    pos.getX() + direction.getX(),
+                    pos.getY() + direction.getY(),
+                    pos.getZ() + direction.getZ());
             if (neighbor != null
                     && neighbor.zone == Zone.ACTIVE
                     && neighbor.blockId.equals(blockId)) {
@@ -577,11 +585,11 @@ public final class StaticToSandTask {
             }
         }
 
-        index.remove(key(level, oldPos));
+        removeEntryAt(level, oldPos);
         entry.pos = target;
         entry.lastPos = oldPos;
         entry.zone = Zone.ACTIVE;
-        index.put(key(level, target), entry);
+        indexFor(level).put(target.asLong(), entry);
 
         if (movedDown) {
             entry.horizontalMoves = 0;
@@ -629,17 +637,20 @@ public final class StaticToSandTask {
 
     private void removeEntry(Entry entry, List<Entry> pendingActive, Set<Entry> pendingSet) {
         entry.zone = Zone.REMOVED;
-        index.remove(key(entry.level, entry.pos));
+        removeEntryAt(entry.level, entry.pos);
         activateWaitingAround(entry.level, entry.pos, null, pendingActive, pendingSet);
     }
 
     private void activateWaitingAround(ServerLevel level, BlockPos center, BlockPos preferredDirection,
             List<Entry> pendingActive, Set<Entry> pendingSet) {
-        for (BlockPos offset : ACTIVATION_OFFSETS) {
-            Entry waitingEntry = index.get(key(level, center.offset(offset)));
+        for (int[] offset : ACTIVATION_OFFSETS) {
+                Entry waitingEntry = getEntry(level,
+                    center.getX() + offset[0],
+                    center.getY() + offset[1],
+                        center.getZ() + offset[2]);
             if (waitingEntry != null
                     && waitingEntry.zone == Zone.WAITING
-                    && (!waitingEntry.horizontalLimitReached || offset.equals(BlockPos.ZERO.above()))) {
+                    && (!waitingEntry.horizontalLimitReached || offset[1] == 1)) {
                 waitingEntry.zone = Zone.ACTIVE;
                 waitingEntry.preferredDirection = preferredDirection;
                 if (pendingSet.add(waitingEntry)) {
@@ -781,8 +792,24 @@ public final class StaticToSandTask {
                 .thenComparingInt(entry -> entry.pos.getY());
     }
 
-    private static PositionKey key(ServerLevel level, BlockPos pos) {
-        return new PositionKey(level.dimension().location(), pos);
+    private Map<Long, Entry> indexFor(ServerLevel level) {
+        return index.computeIfAbsent(level, ignored -> new HashMap<>());
+    }
+
+    private Entry getEntry(ServerLevel level, int x, int y, int z) {
+        Map<Long, Entry> levelIndex = index.get(level);
+        return levelIndex == null ? null : levelIndex.get(BlockPos.asLong(x, y, z));
+    }
+
+    private void removeEntryAt(ServerLevel level, BlockPos pos) {
+        Map<Long, Entry> levelIndex = index.get(level);
+        if (levelIndex == null) {
+            return;
+        }
+        levelIndex.remove(pos.asLong());
+        if (levelIndex.isEmpty()) {
+            index.remove(level);
+        }
     }
 
     private enum Zone {
@@ -790,8 +817,6 @@ public final class StaticToSandTask {
         WAITING,
         REMOVED
     }
-
-    private record PositionKey(ResourceLocation dimension, BlockPos pos) {}
 
     private record Center(int x, int z) {}
 

@@ -7,10 +7,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -33,6 +35,8 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Moves a connected cluster of blocks one block per tick. Phase one pushes the
@@ -41,6 +45,7 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 @SuppressWarnings("null")
 public final class StaticToSandTask {
     private static StaticToSandTask INSTANCE;
+    private static final Logger LOGGER = LoggerFactory.getLogger(StaticToSandTask.class);
     private static final Map<UUID, PlayerSettings> PLAYER_SETTINGS = new HashMap<>();
     private static final TagKey<Block> GRAVITY_BLOCK_WHITELIST = TagKey.create(
             Registries.BLOCK,
@@ -88,6 +93,8 @@ public final class StaticToSandTask {
     private final Map<ServerLevel, Map<Long, Entry>> index = new IdentityHashMap<>();
     private final Map<ResourceLocation, Long> lastLevelGameTimes = new HashMap<>();
     private final Set<ServerPlayer> participants = new HashSet<>();
+    private final Map<String, Long> tickTimingsNanos = new HashMap<>();
+    private final Map<String, Integer> tickTimingCounts = new HashMap<>();
 
     private boolean running;
     private int phase = 1;
@@ -106,8 +113,8 @@ public final class StaticToSandTask {
         List<TagKey<Block>> approximateTags = approximateMatching
                 ? approximateMatchingTags(clickedState)
                 : List.of();
-        List<BlockPos> selected = task.selectBlocks(
-                level, sourcePos, clickedState.getBlock(), approximateTags, maxBlocks);
+        List<BlockPos> selected = task.measure("selectBlocks", () -> task.selectBlocks(
+                level, sourcePos, clickedState.getBlock(), approximateTags, maxBlocks));
         if (selected.isEmpty()) {
             return false;
         }
@@ -115,9 +122,9 @@ public final class StaticToSandTask {
         if (!task.running) {
             task.resetTaskState();
         }
-        task.addSelection(
+        task.measureVoid("addSelection", () -> task.addSelection(
                 level, selected, new Center(target.getX(), target.getZ()), true,
-                protectBlockEntities);
+                protectBlockEntities));
         task.phase = 2;
         task.running = true;
         return true;
@@ -211,8 +218,8 @@ public final class StaticToSandTask {
         List<TagKey<Block>> approximateTags = event.isApproximateMatching()
                 ? approximateMatchingTags(clickedState)
                 : List.of();
-        List<BlockPos> selected = selectBlocks(
-                level, event.getPos(), block, approximateTags, event.getMaxConnectedBlocks());
+        List<BlockPos> selected = measure("selectBlocks", () -> selectBlocks(
+                level, event.getPos(), block, approximateTags, event.getMaxConnectedBlocks()));
         if (selected.isEmpty()) {
             return;
         }
@@ -228,7 +235,8 @@ public final class StaticToSandTask {
             resetTaskState();
         }
 
-        addSelection(level, selected, center, shift, event.isProtectBlockEntities());
+        measureVoid("addSelection",
+                () -> addSelection(level, selected, center, shift, event.isProtectBlockEntities()));
 
         if (player instanceof ServerPlayer serverPlayer && !(player instanceof FakePlayer)) {
             participants.add(serverPlayer);
@@ -266,6 +274,9 @@ public final class StaticToSandTask {
             return;
         }
 
+        long tickStartNanos = System.nanoTime();
+        tickTimingsNanos.clear();
+        tickTimingCounts.clear();
         Set<ServerLevel> tickingLevels = new HashSet<>();
         for (Entry entry : active) {
             if (hasLevelAdvanced(entry.level)) {
@@ -286,28 +297,40 @@ public final class StaticToSandTask {
         List<Entry> pendingActive = new ArrayList<>();
         Set<Entry> pendingSet = new HashSet<>();
 
-        for (Entry entry : new ArrayList<>(waiting)) {
-            if (tickingLevels.contains(entry.level)
-                    && entry.zone == Zone.WAITING
-                    && entry.level.getBlockState(entry.pos).getBlock() != entry.block) {
-                removeEntry(entry, pendingActive, pendingSet);
+        measureVoid("waitingIntegrityCheck", () -> {
+            for (Entry entry : new ArrayList<>(waiting)) {
+                if (tickingLevels.contains(entry.level)
+                        && entry.zone == Zone.WAITING
+                        && entry.level.getBlockState(entry.pos).getBlock() != entry.block) {
+                    measureVoid("removeEntry", () -> removeEntry(entry, pendingActive, pendingSet));
+                }
             }
-        }
+        });
 
         int snapshotLength = active.size();
         for (int i = 0; i < snapshotLength; i++) {
             Entry entry = active.get(i);
             if (tickingLevels.contains(entry.level)
                     && entry.zone == Zone.ACTIVE && tickCount >= entry.eligibleTick) {
-                processEntry(entry, pendingActive, pendingSet);
+                measureVoid("processEntry", () -> processEntry(entry, pendingActive, pendingSet));
             }
         }
 
-        appendUnique(active, pendingActive);
-        active.removeIf(entry -> entry.zone != Zone.ACTIVE);
-        waiting.removeIf(entry -> entry.zone != Zone.WAITING);
-        enforceQueueLimits(pendingActive, pendingSet);
+        measureVoid("appendUnique", () -> appendUnique(active, pendingActive));
+        measureVoid("queueCleanup", () -> {
+            active.removeIf(entry -> entry.zone != Zone.ACTIVE);
+            waiting.removeIf(entry -> {
+                if (entry.zone == Zone.WAITING) {
+                    return false;
+                }
+                entry.inWaitingList = false;
+                return true;
+            });
+        });
+        measureVoid("enforceQueueLimits", () -> enforceQueueLimits(pendingActive, pendingSet));
 
+        recordTiming("serverTick.total", System.nanoTime() - tickStartNanos);
+        logTickTimings();
         advancePhaseOrFinish();
     }
 
@@ -411,8 +434,10 @@ public final class StaticToSandTask {
 
     private void processEntry(Entry entry, List<Entry> pendingActive, Set<Entry> pendingSet) {
         ServerLevel level = entry.level;
-        if (level.getBlockState(entry.pos).getBlock() != entry.block) {
-            removeEntry(entry, pendingActive, pendingSet);
+        Block blockAtEntry = measure(
+                "processEntry.blockCheck", () -> level.getBlockState(entry.pos).getBlock());
+        if (blockAtEntry != entry.block) {
+            measureVoid("removeEntry", () -> removeEntry(entry, pendingActive, pendingSet));
             return;
         }
 
@@ -421,24 +446,30 @@ public final class StaticToSandTask {
         boolean movedDown = false;
 
         BlockPos down = entry.pos.below();
-        if (isAir(level, down) && !down.equals(entry.lastPos)) {
+        boolean downIsAir = measure("processEntry.downCheck", () -> isAir(level, down));
+        if (downIsAir && !down.equals(entry.lastPos)) {
             target = down;
             movedDown = true;
         } else {
             int fallbackStartDirection = -1;
-            PreferredMove preferredMove = consumePreferredHorizontalTarget(entry, effectivePhase);
+            PreferredMove preferredMove = measure(
+                    "consumePreferredHorizontalTarget",
+                    () -> consumePreferredHorizontalTarget(entry, effectivePhase));
             target = preferredMove.target();
             fallbackStartDirection = preferredMove.fallbackStartDirection();
             if (target == null
                     && entry.horizontalMoves >= Config.ISOLATION_MOVE_LIMIT.getAsInt()
-                    && countActiveNeighbors(level, entry.pos, entry.blockId) == 0) {
+                    && measure("countActiveNeighbors",
+                            () -> countActiveNeighbors(level, entry.pos, entry.blockId)) == 0) {
                 park(entry);
                 return;
             }
             if (target == null && !(effectivePhase == 2
                     && entry.pos.getX() == entry.centerX
                     && entry.pos.getZ() == entry.centerZ)) {
-                target = chooseHorizontalTarget(entry, effectivePhase, fallbackStartDirection);
+                int fallbackDirection = fallbackStartDirection;
+                target = measure("chooseHorizontalTarget",
+                        () -> chooseHorizontalTarget(entry, effectivePhase, fallbackDirection));
             }
         }
 
@@ -447,7 +478,10 @@ public final class StaticToSandTask {
             return;
         }
 
-        moveEntry(entry, target, movedDown, pendingActive, pendingSet);
+        BlockPos selectedTarget = target;
+        boolean selectedMovedDown = movedDown;
+        measureVoid("moveEntry",
+                () -> moveEntry(entry, selectedTarget, selectedMovedDown, pendingActive, pendingSet));
     }
 
     private BlockPos chooseHorizontalTarget(
@@ -485,7 +519,8 @@ public final class StaticToSandTask {
             }
 
             long score = 0L;
-            int neighborCount = countNeighbors(level, candidatePos, entry.blockId);
+            int neighborCount = measure("countNeighbors",
+                    () -> countNeighbors(level, candidatePos, entry.blockId));
             score = -(long) PHASE_2_DISTANCE_WEIGHT * (candidateDistance - currentDistance)
                     + (long) PHASE_2_NEIGHBOR_WEIGHT * neighborCount;
             Candidate candidate = new Candidate(
@@ -565,31 +600,43 @@ public final class StaticToSandTask {
         BlockPos oldPos = entry.pos;
         CompoundTag blockEntityData = null;
         if (entry.protectBlockEntities) {
-            BlockEntity blockEntity = level.getBlockEntity(oldPos);
+            BlockEntity blockEntity = measure(
+                    "blockEntity.get", () -> level.getBlockEntity(oldPos));
             if (blockEntity != null) {
-                blockEntityData = blockEntity.saveCustomOnly(level.registryAccess());
+                BlockEntity sourceBlockEntity = blockEntity;
+                blockEntityData = measure("blockEntity.save",
+                        () -> sourceBlockEntity.saveCustomOnly(level.registryAccess()));
             }
         }
 
         BlockState replacement = Blocks.AIR.defaultBlockState();
         if (movedDown && Config.REPLACE_FALLING_BLOCK_WITH_FLUID.getAsBoolean()) {
-            replacement = neighboringFluidSource(level, oldPos);
+            replacement = measure(
+                    "neighboringFluidSource", () -> neighboringFluidSource(level, oldPos));
         }
-        level.setBlock(oldPos, replacement, SET_BLOCK_FLAGS);
-        level.setBlock(target, entry.block.defaultBlockState(), SET_BLOCK_FLAGS);
-        if (blockEntityData != null) {
-            BlockEntity targetBlockEntity = level.getBlockEntity(target);
+        BlockState oldBlockState = replacement;
+        BlockState targetState = entry.block.defaultBlockState();
+        measureVoid("setBlock.old", () -> level.setBlock(oldPos, oldBlockState, SET_BLOCK_FLAGS));
+        measureVoid("setBlock.target", () -> level.setBlock(target, targetState, SET_BLOCK_FLAGS));
+        CompoundTag savedBlockEntityData = blockEntityData;
+        if (savedBlockEntityData != null) {
+            BlockEntity targetBlockEntity = measure(
+                    "blockEntity.getTarget", () -> level.getBlockEntity(target));
             if (targetBlockEntity != null) {
-                targetBlockEntity.loadCustomOnly(blockEntityData, level.registryAccess());
-                targetBlockEntity.setChanged();
+                measureVoid("blockEntity.load", () -> {
+                    targetBlockEntity.loadCustomOnly(savedBlockEntityData, level.registryAccess());
+                    targetBlockEntity.setChanged();
+                });
             }
         }
 
-        removeEntryAt(level, oldPos);
+        measureVoid("indexUpdate", () -> {
+            removeEntryAt(level, oldPos);
+            indexFor(level).put(target.asLong(), entry);
+        });
         entry.pos = target;
         entry.lastPos = oldPos;
         entry.zone = Zone.ACTIVE;
-        indexFor(level).put(target.asLong(), entry);
 
         if (movedDown) {
             entry.horizontalMoves = 0;
@@ -600,13 +647,16 @@ public final class StaticToSandTask {
                 park(entry);
             }
         }
-        activateWaitingAround(
-                entry.level, oldPos, horizontalDirection(oldPos, target), pendingActive, pendingSet);
+        BlockPos movedDirection = horizontalDirection(oldPos, target);
+        measureVoid("activateWaitingAround",
+                () -> activateWaitingAround(
+                        entry.level, oldPos, movedDirection, pendingActive, pendingSet));
     }
 
     private void park(Entry entry) {
         entry.zone = Zone.WAITING;
-        if (!waiting.contains(entry)) {
+        if (!entry.inWaitingList) {
+            entry.inWaitingList = true;
             waiting.add(entry);
         }
     }
@@ -614,20 +664,28 @@ public final class StaticToSandTask {
     private void enforceQueueLimits(List<Entry> pendingActive, Set<Entry> pendingSet) {
         appendUnique(active, pendingActive);
         active.removeIf(entry -> entry.zone != Zone.ACTIVE);
-        waiting.removeIf(entry -> entry.zone != Zone.WAITING);
+        waiting.removeIf(entry -> {
+            if (entry.zone == Zone.WAITING) {
+                return false;
+            }
+            entry.inWaitingList = false;
+            return true;
+        });
 
         while (active.size() > Config.ACTIVE_BLOCK_LIMIT.getAsInt()) {
             Entry oldest = active.remove(0);
             if (oldest.zone == Zone.ACTIVE) {
                 oldest.zone = Zone.WAITING;
+                oldest.inWaitingList = true;
                 waiting.add(oldest);
             }
         }
 
         while (waiting.size() > Config.WAITING_BLOCK_LIMIT.getAsInt()) {
             Entry oldest = waiting.remove(0);
+            oldest.inWaitingList = false;
             if (oldest.zone == Zone.WAITING) {
-                removeEntry(oldest, pendingActive, pendingSet);
+                measureVoid("removeEntry", () -> removeEntry(oldest, pendingActive, pendingSet));
             }
         }
 
@@ -638,7 +696,8 @@ public final class StaticToSandTask {
     private void removeEntry(Entry entry, List<Entry> pendingActive, Set<Entry> pendingSet) {
         entry.zone = Zone.REMOVED;
         removeEntryAt(entry.level, entry.pos);
-        activateWaitingAround(entry.level, entry.pos, null, pendingActive, pendingSet);
+        measureVoid("activateWaitingAround",
+                () -> activateWaitingAround(entry.level, entry.pos, null, pendingActive, pendingSet));
     }
 
     private void activateWaitingAround(ServerLevel level, BlockPos center, BlockPos preferredDirection,
@@ -812,6 +871,52 @@ public final class StaticToSandTask {
         }
     }
 
+    private <T> T measure(String method, Supplier<T> operation) {
+        long start = System.nanoTime();
+        try {
+            return operation.get();
+        } finally {
+            recordTiming(method, System.nanoTime() - start);
+        }
+    }
+
+    private void measureVoid(String method, Runnable operation) {
+        long start = System.nanoTime();
+        try {
+            operation.run();
+        } finally {
+            recordTiming(method, System.nanoTime() - start);
+        }
+    }
+
+    private void recordTiming(String method, long elapsedNanos) {
+        tickTimingsNanos.merge(method, elapsedNanos, Long::sum);
+        tickTimingCounts.merge(method, 1, Integer::sum);
+    }
+
+    private void logTickTimings() {
+        if (tickTimingsNanos.isEmpty()) {
+            return;
+        }
+
+        List<Map.Entry<String, Long>> timings = new ArrayList<>(tickTimingsNanos.entrySet());
+        timings.sort(Map.Entry.<String, Long>comparingByValue().reversed());
+        StringBuilder details = new StringBuilder();
+        for (Map.Entry<String, Long> timing : timings) {
+            if (details.length() > 0) {
+                details.append(", ");
+            }
+            details.append(timing.getKey())
+                    .append('=')
+            .append(String.format(Locale.ROOT, "%.3f",
+                    timing.getValue() / 1_000_000.0D))
+            .append("ms(")
+            .append(tickTimingCounts.get(timing.getKey()))
+            .append("x)");
+        }
+        LOGGER.info("tick {} method timings: {}", tickCount, details);
+    }
+
     private enum Zone {
         ACTIVE,
         WAITING,
@@ -846,6 +951,7 @@ public final class StaticToSandTask {
         private int horizontalMoves;
         private boolean horizontalLimitReached;
         private Zone zone = Zone.ACTIVE;
+        private boolean inWaitingList;
         private boolean forcePhase2;
         private final boolean protectBlockEntities;
         private long eligibleTick;

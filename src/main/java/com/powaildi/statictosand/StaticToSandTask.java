@@ -393,23 +393,27 @@ public final class StaticToSandTask {
     }
 
     /**
-     * Moves a parked entry back into the active zone and grants it one move.
+     * Re-arms an entry that an explicit event selected out of the waiting zone.
      *
      * <p>{@link #park} keeps {@code horizontalMoves} and
-     * {@code horizontalLimitReached} as they were, so without help the
-     * isolation rule in {@link #processEntry} parks a woken entry again on its
-     * very next tick, purely because it has no ACTIVE neighbour, before it ever
-     * moves. The grace flag skips that rule once and is cleared by the first
-     * move (or by the next {@link #park}), so the activation is never a no-op
-     * while the isolation budget itself is left untouched and the block still
-     * settles after that single move.</p>
+     * {@code horizontalLimitReached} as they were, so a woken entry would be
+     * parked again by the isolation rule on its very next tick and the event
+     * would look like a no-op. The existing {@link Entry} is therefore reset to
+     * the state of a freshly selected block instead of being replaced by a new
+     * one.</p>
+     *
+     * <p>Only event-driven activation goes through here. Tick-driven waking in
+     * {@link #activateWaitingAround} deliberately leaves the counters alone,
+     * otherwise every block moving next to a parked block would reset it and
+     * the waiting zone would never settle.</p>
      */
     private void activateWaiting(Entry entry, BlockPos preferredDirection) {
         entry.zone = Zone.ACTIVE;
         entry.eligibleTick = tickCount + 1;
+        entry.horizontalMoves = 0;
+        entry.horizontalLimitReached = false;
         entry.preferredDirection = preferredDirection;
         entry.lastPos = null;
-        entry.isolationGrace = true;
         waiting.remove(entry);
     }
 
@@ -462,7 +466,6 @@ public final class StaticToSandTask {
             target = preferredMove.target();
             fallbackStartDirection = preferredMove.fallbackStartDirection();
             if (target == null
-                    && !entry.isolationGrace
                     && entry.horizontalMoves >= Config.ISOLATION_MOVE_LIMIT.getAsInt()
                     && countActiveNeighbors(level, entry.pos, entry.blockId) == 0) {
                 park(entry);
@@ -628,7 +631,6 @@ public final class StaticToSandTask {
         entry.pos = target;
         entry.lastPos = oldPos;
         entry.zone = Zone.ACTIVE;
-        entry.isolationGrace = false;
 
         if (movedDown) {
             entry.horizontalMoves = 0;
@@ -646,7 +648,6 @@ public final class StaticToSandTask {
 
     private void park(Entry entry) {
         entry.zone = Zone.WAITING;
-        entry.isolationGrace = false;
         if (!waiting.contains(entry)) {
             waiting.add(entry);
         }
@@ -897,8 +898,6 @@ public final class StaticToSandTask {
         private BlockPos preferredDirection;
         private int horizontalMoves;
         private boolean horizontalLimitReached;
-        /** Lets a freshly woken entry move once even when the isolation rule applies. */
-        private boolean isolationGrace;
         private Zone zone = Zone.ACTIVE;
         private boolean forcePhase2;
         private final boolean protectBlockEntities;

@@ -74,6 +74,7 @@ public final class StaticToSandTask {
             {0, 0, -1},
             {0, 0, 1},
             {1, 0, 0},
+            {0, -1, 0},
             {0, 1, 0}
     };
     private static final int PHASE_2_NEIGHBOR_WEIGHT = 12;
@@ -218,6 +219,8 @@ public final class StaticToSandTask {
             return;
         }
 
+        activateWaitingEntry(level, event.getPos());
+
         Player player = event.getPlayer();
         boolean shift = player != null && player.isShiftKeyDown();
         Center center = shift
@@ -351,6 +354,11 @@ public final class StaticToSandTask {
         for (BlockPos pos : selected) {
             long key = pos.asLong();
             if (levelIndex.containsKey(key)) {
+                Entry existing = levelIndex.get(key);
+                if (existing.zone == Zone.WAITING) {
+                    activateWaiting(existing, null);
+                    additions.add(existing);
+                }
                 continue;
             }
 
@@ -372,6 +380,37 @@ public final class StaticToSandTask {
             active.clear();
         }
         appendUnique(active, additions);
+    }
+
+    private void activateWaitingEntry(ServerLevel level, BlockPos pos) {
+        Entry entry = getEntry(level, pos.getX(), pos.getY(), pos.getZ());
+        if (entry == null || entry.zone != Zone.WAITING) {
+            return;
+        }
+
+        activateWaiting(entry, null);
+        appendUnique(active, List.of(entry));
+    }
+
+    /**
+     * Moves a parked entry back into the active zone and grants it one move.
+     *
+     * <p>{@link #park} keeps {@code horizontalMoves} and
+     * {@code horizontalLimitReached} as they were, so without help the
+     * isolation rule in {@link #processEntry} parks a woken entry again on its
+     * very next tick, purely because it has no ACTIVE neighbour, before it ever
+     * moves. The grace flag skips that rule once and is cleared by the first
+     * move (or by the next {@link #park}), so the activation is never a no-op
+     * while the isolation budget itself is left untouched and the block still
+     * settles after that single move.</p>
+     */
+    private void activateWaiting(Entry entry, BlockPos preferredDirection) {
+        entry.zone = Zone.ACTIVE;
+        entry.eligibleTick = tickCount + 1;
+        entry.preferredDirection = preferredDirection;
+        entry.lastPos = null;
+        entry.isolationGrace = true;
+        waiting.remove(entry);
     }
 
     private static List<TagKey<Block>> approximateMatchingTags(BlockState triggerState) {
@@ -423,6 +462,7 @@ public final class StaticToSandTask {
             target = preferredMove.target();
             fallbackStartDirection = preferredMove.fallbackStartDirection();
             if (target == null
+                    && !entry.isolationGrace
                     && entry.horizontalMoves >= Config.ISOLATION_MOVE_LIMIT.getAsInt()
                     && countActiveNeighbors(level, entry.pos, entry.blockId) == 0) {
                 park(entry);
@@ -588,6 +628,7 @@ public final class StaticToSandTask {
         entry.pos = target;
         entry.lastPos = oldPos;
         entry.zone = Zone.ACTIVE;
+        entry.isolationGrace = false;
 
         if (movedDown) {
             entry.horizontalMoves = 0;
@@ -605,6 +646,7 @@ public final class StaticToSandTask {
 
     private void park(Entry entry) {
         entry.zone = Zone.WAITING;
+        entry.isolationGrace = false;
         if (!waiting.contains(entry)) {
             waiting.add(entry);
         }
@@ -855,6 +897,8 @@ public final class StaticToSandTask {
         private BlockPos preferredDirection;
         private int horizontalMoves;
         private boolean horizontalLimitReached;
+        /** Lets a freshly woken entry move once even when the isolation rule applies. */
+        private boolean isolationGrace;
         private Zone zone = Zone.ACTIVE;
         private boolean forcePhase2;
         private final boolean protectBlockEntities;
